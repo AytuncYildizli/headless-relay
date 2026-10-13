@@ -58,12 +58,33 @@ and bare repositories independently of Git environment variables; paths are abso
 ```bash
 # Usage: kimi_relay PROMPT [NATIVE-MODEL-ALIAS] [text|stream-json]
 kimi_relay() (
+  # Inline arguments stay small before exec; use kimi_relay_file for handoff files.
+  for arg in "$@"; do
+    [ "${#arg}" -le 8192 ] || { echo "kimi-relay: inline argument too large; use bounded file adapter" >&2; exit 2; }
+  done
   # Set HEADLESS_RELAY_ROOT to the absolute installed headless-relay directory first.
   case "${HEADLESS_RELAY_ROOT:-}" in /*) ;; *) echo "kimi-relay: absolute HEADLESS_RELAY_ROOT required" >&2; exit 2;; esac
   [ -f "$HEADLESS_RELAY_ROOT/scripts/kimi_relay.py" ] || { echo "kimi-relay: supervisor missing" >&2; exit 1; }
-  exec python3 "$HEADLESS_RELAY_ROOT/scripts/kimi_relay.py" "$@"
+  exec python3 "$HEADLESS_RELAY_ROOT/scripts/kimi_relay.py" --inline "$@"
+)
+
+# Usage: kimi_relay_file FILE [NATIVE-MODEL-ALIAS] [text|stream-json]
+kimi_relay_file() (
+  for arg in "$@"; do
+    [ "${#arg}" -le 8192 ] || { echo "kimi-relay: file adapter argument too large" >&2; exit 2; }
+  done
+  case "${HEADLESS_RELAY_ROOT:-}" in /*) ;; *) echo "kimi-relay: absolute HEADLESS_RELAY_ROOT required" >&2; exit 2;; esac
+  [ -f "$HEADLESS_RELAY_ROOT/scripts/kimi_relay.py" ] || { echo "kimi-relay: supervisor missing" >&2; exit 1; }
+  exec python3 "$HEADLESS_RELAY_ROOT/scripts/kimi_relay.py" --file "$@"
 )
 ```
+
+The file adapter reads only a regular UTF-8 file, bounds the read before any prompt argv,
+and rejects NUL or more than 32 KiB with status 2; it never truncates. Native Kimi still needs
+a prompt argv, so larger diffs are unsupported by this adapter, not implicitly summarized.
+Report `input_too_large` and ask for an explicitly smaller allowed brief or use another lane.
+The inline helper also rejects arguments longer than 8192 shell characters before exec.
+Both routes check the remaining OS argv/environment budget before invoking native Kimi.
 
 Never invoke `kimi_relay` from cron, a scheduler, or an unattended batch. Native subscription
 OAuth is for direct user-triggered turns; use metered Kimi Platform credentials for automation.
@@ -737,8 +758,8 @@ cat /tmp/handoff.md | opencode run -m "zai-coding-plan/glm-5.3" --variant max
 # bytes verbatim; the file's backticks/$ are NOT re-interpreted by the shell)
 zcode --prompt "$(cat /tmp/handoff.md)"
 
-# Kimi: no stdin prompt mode — pass the file bytes to the isolated helper.
-kimi_relay "$(cat /tmp/handoff.md)" "$KIMI_MODEL"
+# Kimi: bounded regular-file adapter; >32 KiB is refused before CLI invocation.
+kimi_relay_file "/tmp/handoff.md" "$KIMI_MODEL"
 
 # Grok: pass the file's bytes as the inline arg via command substitution — the grok_relay helper
 # uses `grok -p`, so no file needs to be readable from the isolated CWD. "$(cat …)" is NOT
@@ -799,10 +820,13 @@ requested lanes:
 KIMI_MODEL="${HEADLESS_RELAY_KIMI_MODEL:-kimi-code/k3}"
 codex exec < /tmp/handoff.md > /tmp/ans-gpt.md 2>/dev/null &
 cat /tmp/handoff.md | opencode run -m "zai-coding-plan/glm-5.3" --variant max > /tmp/ans-glm.md 2>/dev/null &
-# Kimi: opt-in only, 600s deadline; preserve diagnostics separately.
-kimi_relay "$(cat /tmp/handoff.md)" "$KIMI_MODEL" > /tmp/ans-kimi.md 2>/tmp/ans-kimi.err &
+# Kimi: opt-in only, bounded file/deadline; preserve diagnostics and exact status.
+kimi_relay_file "/tmp/handoff.md" "$KIMI_MODEL" > /tmp/ans-kimi.md 2>/tmp/ans-kimi.err &
+kimi_pid=$!
 # Grok lane — grok_relay runs with empty HOME + clean temp GROK_HOME (no config leak) + tools denied:
 grok_relay "$(cat /tmp/handoff.md)" > /tmp/ans-grok.md 2>/dev/null &
+if wait "$kimi_pid"; then kimi_status=0; else kimi_status=$?; fi
+printf '%s\n' "$kimi_status" > /tmp/ans-kimi.status
 wait
 # Gemini runs SEQUENTIALLY, AFTER the burst — agy 1.1.0 wedges inside a 3+ CLI burst (see below):
 agy -p "$(cat /tmp/handoff.md)" --model "Gemini 3.8 Flash (High)" > /tmp/ans-gemini.md 2>/dev/null
@@ -816,7 +840,12 @@ inside it — agy 1.1.0 reliably wedges when started alongside 3+ other concurre
 (solo and pairwise runs are fine; a 5s stagger does not help). It is fast solo (~10-30s). See
 the Antigravity section of [references/cli-reference.md](references/cli-reference.md).
 
-Then read the answer files and present a merged view: shared findings first, then each model's
+Before synthesis, read `/tmp/ans-kimi.status`: a nonzero status (including timeout 124 or input
+rejection 2) means the Kimi lane failed, even if it emitted partial text. Do not promote that
+artifact as a successful answer; keep its bounded diagnostic/status and successful siblings.
+The bare `wait` above joins remaining siblings, not a Kimi success check.
+
+Then read the successful answer files and present a merged view: shared findings first, then each model's
 unique points, then contradictions to resolve. A finding cited with a specific file:line by one
 model beats a vague agreement from the others — verify before dismissing it as an outlier.
 

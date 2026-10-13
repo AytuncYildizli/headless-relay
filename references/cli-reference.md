@@ -224,8 +224,8 @@ kimi_relay "your question here" "kimi-code/k3"
 KIMI_MODEL="${HEADLESS_RELAY_KIMI_MODEL:-kimi-code/k3}"
 kimi_relay "your question here" "$KIMI_MODEL"
 
-# A long prompt is a quoted helper argument; kimi has no stdin prompt mode.
-kimi_relay "$(cat /tmp/handoff.md)" "$KIMI_MODEL"
+# Bounded regular-file input: the adapter refuses >32 KiB before any prompt argv.
+kimi_relay_file "/tmp/handoff.md" "$KIMI_MODEL"
 ```
 
 The official aliases currently include `kimi-code/k3`, `kimi-code/kimi-for-coding`, and

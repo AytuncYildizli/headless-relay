@@ -37,7 +37,8 @@ need "SKILL.md"                    'Never invoke `kimi_relay` from cron, a sched
 need "SKILL.md"                    "never reads, copies, moves, or rewrites Kimi's OAuth files"
 need "SKILL.md"                    '`$KIMI_CODE_HOME/AGENTS.md` and'
 need "SKILL.md"                    '`~/.agents/AGENTS.md`'
-need "SKILL.md"                    'exec python3 "$HEADLESS_RELAY_ROOT/scripts/kimi_relay.py" "$@"'
+need "SKILL.md"                    'exec python3 "$HEADLESS_RELAY_ROOT/scripts/kimi_relay.py" --inline "$@"'
+need "SKILL.md"                    'exec python3 "$HEADLESS_RELAY_ROOT/scripts/kimi_relay.py" --file "$@"'
 need "SKILL.md"                    'absolute HEADLESS_RELAY_ROOT required'
 need "SKILL.md"                    'obtain explicit consent'
 need "SKILL.md"                    'global MCP'

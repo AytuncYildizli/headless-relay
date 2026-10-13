@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -43,10 +44,12 @@ def cancel_owned_group(proc):
 
 def main():
     args = sys.argv[1:]
+    from_file = bool(args and args[0] == '--file')
+    if args and args[0] in ('--file', '--inline'):
+        args = args[1:]
     if not 1 <= len(args) <= 3:
-        print('kimi-relay: usage: PROMPT [MODEL] [text|stream-json]', file=sys.stderr)
+        print('kimi-relay: usage: [--inline|--file] PROMPT_OR_FILE [MODEL] [text|stream-json]', file=sys.stderr)
         return 2
-    prompt = args[0]
     model = (args[1] if len(args) > 1 else '') or os.environ.get('HEADLESS_RELAY_KIMI_MODEL') or 'kimi-code/k3'
     output = (args[2] if len(args) > 2 else '') or 'text'
     limit = os.environ.get('HEADLESS_RELAY_KIMI_TIMEOUT_SECONDS', '600')
@@ -56,6 +59,26 @@ def main():
     if os.name != 'posix' or not all(hasattr(os, name) for name in ('waitid', 'WNOWAIT', 'WEXITED', 'WNOHANG', 'P_PID')):
         print('kimi-relay: POSIX waitid(WNOWAIT) required; refusing', file=sys.stderr)
         return 1
+    if from_file:
+        fd = os.open(args[0], os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+        with os.fdopen(fd, 'rb') as source:
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                print('kimi-relay: prompt source must be a regular file', file=sys.stderr)
+                return 2
+            payload = source.read(32769)
+    else:
+        payload = args[0].encode('utf-8')
+    if len(payload) > 32768 or b'\0' in payload:
+        print('kimi-relay: prompt must be UTF-8 without NUL and at most 32 KiB; no truncation', file=sys.stderr)
+        return 2
+    prompt = payload.decode('utf-8')
+    # Kimi has no stdin prompt route: refuse before launch if inherited env/argv
+    # leave insufficient OS exec budget, even for an otherwise bounded prompt.
+    argv_bytes = sum(len(os.fsencode(v)) + 1 for v in (prompt, model, output))
+    env_bytes = sum(len(os.fsencode(k)) + len(os.fsencode(v)) + 2 for k, v in os.environ.items())
+    if argv_bytes + env_bytes + 8192 > os.sysconf('SC_ARG_MAX'):
+        print('kimi-relay: insufficient OS argument budget; refusing', file=sys.stderr)
+        return 2
     stopped = 0
 
     def on_signal(signum, _frame):

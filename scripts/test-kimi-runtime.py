@@ -211,6 +211,68 @@ sys.exit(module.main())
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('other/model', json.loads(self.record.read_text())['args'])
 
+    def test_prompt_file_route_bounds_before_cli_launch(self):
+        # A large source file must be rejected before entering any argv payload.
+        helper_text = (ROOT / 'SKILL.md').read_text(encoding='utf-8')
+        match = re.search(r'^kimi_relay_file\(\) \(\n.*?^\)\n', helper_text, re.M | re.S)
+        self.assertIsNotNone(match, 'bounded file adapter required')
+        if match is None:
+            self.fail('bounded file adapter missing')
+        prompt = self.base / 'long prompt.md'
+        for data, expected in ((b'allowed context\n', 0), (b'x' * 32768, 0), (b'x' * 150000, 2), (b'has\0nul', 2)):
+            with self.subTest(bytes=len(data)):
+                prompt.write_bytes(data)
+                self.record.unlink(missing_ok=True)
+                result = subprocess.run(['sh', '-c', match.group() + '\nkimi_relay_file "$1"',
+                                         'fixture', str(prompt)], env=self.env, cwd=self.work,
+                                        capture_output=True, text=True, timeout=6)
+                self.assertEqual(result.returncode, expected, result.stderr)
+                if expected == 0:
+                    row = json.loads(self.record.read_text())
+                    self.assertEqual(row['args'][row['args'].index('-p') + 1], data.decode())
+                else:
+                    self.assertFalse(self.record.exists(), 'oversized source must not run CLI')
+
+    def test_consensus_kimi_status_receipt(self):
+        text = (ROOT / 'SKILL.md').read_text(encoding='utf-8')
+        start = text.index('For an ordinary hand-picked 2+ model consensus')
+        match = re.search(r'```bash\n(.*?)\n```', text[start:], re.S)
+        if match is None:
+            self.fail('consensus example missing')
+        block = match.group(1)
+        self.assertIn('kimi_pid=$!', block)
+        self.assertRegex(block, r'if wait "\$kimi_pid"; then')
+        self.assertIn('kimi_status=$?', block)
+        self.assertIn('printf', block)
+        self.assertIn('/tmp/ans-kimi.status', block)
+        self.assertIn('nonzero', text[start:start + 4000])
+        (self.base / 'handoff.md').write_text('synthetic brief', encoding='utf-8')
+        rewritten = block.replace('/tmp/', str(self.base) + '/')
+        stubs = '''codex() { :; }
+opencode() { :; }
+grok_relay() { :; }
+agy() { :; }
+kimi_relay_file() { printf 'partial answer'; return "$KIMI_TEST_RC"; }
+'''
+        for shell in ('sh', 'bash'):
+            for status in (0, 7, 124):
+                with self.subTest(shell=shell, status=status):
+                    result = subprocess.run([shell, '-c', 'set -eu\n' + stubs + rewritten],
+                                            env={**self.env, 'KIMI_TEST_RC': str(status)},
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual((self.base / 'ans-kimi.status').read_text().strip(), str(status))
+                    self.assertEqual((self.base / 'ans-kimi.md').read_text(), 'partial answer')
+
+    def test_inline_size_and_opaque_flag_prompt(self):
+        result = self.run_helper(args=['x' * 8193])
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertFalse(self.record.exists())
+        result = self.run_helper(args=['--file'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        row = json.loads(self.record.read_text())
+        self.assertEqual(row['args'][row['args'].index('-p') + 1], '--file')
+
     def test_bad_input_never_runs_cli(self):
         for args, extra in (([], {}), (['p', 'm', 'bad'], {}), (['p'], {'HEADLESS_RELAY_KIMI_TIMEOUT_SECONDS': '0'}),
                             (['p'], {'HEADLESS_RELAY_KIMI_TIMEOUT_SECONDS': '1.5'}),
