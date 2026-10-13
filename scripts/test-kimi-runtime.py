@@ -123,6 +123,53 @@ class KimiRuntime(unittest.TestCase):
         self.assertFalse(self.canary.exists(), 'leader exit left a writing descendant')
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def lifecycle_fixture(self):
+        # Synchronize leader exit with a ready descendant and cleanup with its TERM.
+        fake = self.bin / 'kimi'
+        fake.write_text('''#!/usr/bin/env python3
+import os, pathlib, subprocess, sys, time
+child = """import os,pathlib,signal,time
+ready=pathlib.Path(os.environ['KIMI_TEST_READY'])
+term=pathlib.Path(os.environ['KIMI_TEST_TERM'])
+def on_term(*_): term.write_text('term')
+signal.signal(signal.SIGTERM,on_term)
+ready.write_text('ready')
+time.sleep(2.5)
+pathlib.Path(os.environ['KIMI_TEST_CANARY']).write_text('late')
+"""
+subprocess.Popen([sys.executable,'-c',child])
+while not pathlib.Path(os.environ['KIMI_TEST_READY']).exists(): time.sleep(.002)
+''')
+        return {**self.env, 'KIMI_TEST_READY': str(self.base / 'ready'),
+                'KIMI_TEST_TERM': str(self.base / 'term'),
+                'HEADLESS_RELAY_KIMI_TIMEOUT_SECONDS': '5'}
+
+    def test_inherited_ignored_sigchld_preserves_group_ownership(self):
+        env = self.lifecycle_fixture()
+        result = subprocess.run(['/usr/bin/python3', str(ROOT / 'scripts/kimi_relay.py'), 'prompt'],
+                                env=env, cwd=self.work, capture_output=True, text=True,
+                                preexec_fn=lambda: signal.signal(signal.SIGCHLD, signal.SIG_IGN), timeout=6)
+        time.sleep(2.7)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.canary.exists(), 'auto-reaped leader left a writing descendant')
+
+    def test_cleanup_phase_signal_is_not_success(self):
+        env = self.lifecycle_fixture()
+        proc = subprocess.Popen(['/usr/bin/python3', str(ROOT / 'scripts/kimi_relay.py'), 'prompt'],
+                                env=env, cwd=self.work, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        deadline = time.monotonic() + 3
+        marker = Path(env['KIMI_TEST_TERM'])
+        while not marker.exists() and proc.poll() is None and time.monotonic() < deadline:
+            time.sleep(.002)
+        ready = marker.exists()
+        if ready:
+            proc.send_signal(signal.SIGTERM)
+        _, stderr = proc.communicate(timeout=5)
+        self.assertTrue(ready, 'cleanup grace phase not reached')
+        self.assertEqual(proc.returncode, 143, stderr.decode())
+        time.sleep(2.7)
+        self.assertFalse(self.canary.exists())
+
     def test_model_precedence_format_and_nonzero(self):
         result = self.run_helper(args=['prompt', 'opaque/model', 'stream-json'],
                                  env={'HEADLESS_RELAY_KIMI_MODEL': 'other/model', 'KIMI_TEST_RC': '7'})

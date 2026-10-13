@@ -64,6 +64,9 @@ def main():
 
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, on_signal)
+    # Ignored SIGCHLD survives exec and enables kernel auto-reaping on POSIX.
+    # Establish the ownership prerequisite before spawning our sole child.
+    signal.signal(signal.SIGCHLD, signal.SIG_DFL)
     # Resolve BEFORE the child's cwd changes; honour relative TMPDIR explicitly.
     temp_root = Path(os.environ.get('TMPDIR') or tempfile.gettempdir()).resolve(strict=True)
     with tempfile.TemporaryDirectory(prefix='kimi-iso.', dir=str(temp_root)) as temp:
@@ -97,6 +100,9 @@ def main():
             status = cancel_owned_group(proc)
         if result is not None:
             return result
+        # Cancellation can arrive after leader exit, during group cleanup.
+        if stopped:
+            return 128 + stopped
         return status if status >= 0 else 128 - status
 
 
