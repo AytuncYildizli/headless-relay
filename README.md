@@ -49,6 +49,10 @@ is a single `git clone`; everything else on this page is detail for when you nee
 - **Second opinions**: hand a diff, a bug, a PR review, or a design question to GPT, GLM,
   Kimi K3, Grok, Gemini, or Claude
 - **Consensus**: send the same prompt to several models in parallel and compare answers
+- **Party / Council Mode**: explicitly ask every safely available built-in and custom lane the
+  same canonical user brief, including independent native subagents for same-provider lanes;
+  preserve dissent and record receipts/skips. A skill/protocol, not an executable council engine;
+  complete bookkeeping is separate from useful success. Contributed by [@AytuncYildizli](https://github.com/AytuncYildizli).
 - **Image / video generation**: headless, through Codex, Gemini, or Grok (Grok under a hermetic
   `env -i` + empty HOME + clean temp GROK_HOME, only the four media tools allowed, media published
   atomically); Grok is
@@ -80,9 +84,12 @@ lives in `references/reprompter-relay.md`.
 | `SECURITY.md` | Grok's historical whole-repo upload: primary sources, xAI's 2026-07-15 open-source response, the source audit, and migration notes for anyone who ran an old Grok Build version |
 | `references/cli-reference.md` | Per-CLI flag tables, ZCode setup recipes, output shapes, troubleshooting |
 | `references/anthropic-terms.md` | Provider-terms compliance detail with citations |
-| `references/custom-targets.md` | Connect your own targets (local models via Ollama/LM Studio/MLX, any one-shot CLI) through `~/.agents/relay-targets.json` |
+| `references/custom-targets.md` | Connect your own targets (local models via Ollama, LM Studio/MLX, any one-shot CLI) through `~/.agents/relay-targets.json` |
+| `references/party-mode.md` | Party/Council protocol: native/CLI roster, canonical user brief, private receipts, scheduling guidance, dissent, separate bookkeeping and useful outcomes |
 | `references/reprompter-relay.md` | Pairing recipe for [RePrompter](https://github.com/AytuncYildizli/reprompter): structure the prompt first, then relay it |
 | `scripts/regression-grok-safety.sh` | Static text tripwire: fails if the Grok isolation safeguard or its security anchors regress |
+| `scripts/regression-party-mode.sh` | Shell entrypoint for the Party documentation tripwire (Python 3 stdlib); no model calls or runtime council guarantees |
+| `scripts/test-party-contract.py` | Anchored visible-clause checks, negative mutations (native/receipt/timeout/privacy/private directory), and explicitly test-only record-rule fixtures; not a provider executor |
 | `scripts/test-grok-runtime.sh` | Runtime counterpart to the tripwire: extracts the shipped `grok_relay` / `grok_media` from `SKILL.md` and exercises the isolation, process-lifecycle, and fail-closed publish matrix under sh/bash/zsh against a fake `grok` (real grok / network never touched), with mutation red-green checks |
 | `scripts/print-model-catalog.sh` | Machine-local catalog: asks installed CLIs which model ids they serve *today*. Not a published menu. |
 | `scripts/catalog_watchdog.py` | Process-group watchdog used by the catalog (timeout / INT / TERM / HUP). After a normal CLI exit it does not `killpg` — that pgid could already be reused. Secrets stay out of argv. |

@@ -1,6 +1,6 @@
 ---
 name: headless-relay
-description: Headless handoff guide for running other AI models from inside an agent session (any Agent Skills runtime - Claude Code, Codex, Grok Build, Cursor, OpenClaw, Hermes). Covers GPT (codex exec), GLM (opencode run or zcode --prompt), Kimi K3 (native kimi -p), Grok (grok -p), Gemini (Antigravity agy -p), and Claude (claude -p or a subagent) - inline vs file prompts, parallel multi-model consensus, JSON output, session resume, image/video generation, video understanding (watching a clip), provider-terms compliance. Use for "ask codex", "ask GLM", "ask Kimi", "ask grok", "ask gemini", "second opinion", "cross-model review", "generate an image", "watch this video", "run headless", "ask another model".
+description: Headless handoff guide for running other AI models from inside an agent session (any Agent Skills runtime - Claude Code, Codex, Grok Build, Cursor, OpenClaw, Hermes). Covers GPT (codex exec), GLM (opencode run or zcode --prompt), Kimi K3 (native kimi -p), Grok (grok -p), Gemini (Antigravity agy -p), and Claude (claude -p or a subagent) - inline vs file prompts, parallel multi-model consensus, Party/Council Mode across every safely available built-in and custom lane, JSON output, session resume, image/video generation, video understanding (watching a clip), provider-terms compliance. Use for "ask codex", "ask GLM", "ask Kimi", "ask grok", "ask gemini", "ask Claude", "second opinion", "cross-model review", "consensus", "party mode", "council mode", "ask everyone", "run all available models", "her şeyi dene", "hepsine sor", "compare models", "generate an image", "watch this video", "run headless", "ask another model".
 license: MIT. Complete terms in LICENSE.txt
 metadata: {"version": "3.1.1"}
 ---
@@ -765,9 +765,35 @@ Kimi is agentic and must not be described as read-only.
 2. Feed it via the per-CLI stdin form above.
 3. Summarize the model's answer; quote its concrete file:line claims verbatim.
 
-### Scenario C — parallel multi-model second opinion / consensus
-Run 2+ models on the SAME prompt file at once (independent shell calls in one message so they
-run concurrently), then compare where they agree and diverge.
+### Scenario C — Party Mode / Council Mode (ask everyone)
+
+When the user says `party mode`, `council mode`, `ask everyone`, `run all available models`,
+`her şeyi dene`, or `hepsine sor`, preflight **every built-in lane plus every valid custom target**,
+then invoke every lane that passes the existing availability, same-provider, provider-terms, and
+data-egress gates. Same-provider lanes are admitted via native subagent transport, with their own
+independent output/error receipt; if the harness lacks that transport, record unavailable with a
+reason, never fall back to the same-provider CLI. For payload-only tasks, use a fresh per-lane
+non-repository cwd AND disable inherited file/tool/command/MCP/hooks access through the transport,
+including native-subagent permissions. If this cannot be established, record `blocked_egress`
+and skip the lane; a frozen brief or empty cwd does not revoke inherited access. Explicitly
+authorized repo tasks must stay within the approved access scope, not inherit broader permissions.
+Normalize and freeze one canonical user brief
+as documented in the reference; this does not promise identical total model context. Do not
+install tools, log in, rotate auth, or silently substitute models to make the roster look complete.
+
+Compatible cloud/CLI lanes may run in parallel. Antigravity stays sequential because of its
+documented burst hang; heavyweight local custom targets stay sequential unless their registry notes
+explicitly permit concurrency. Capture one artifact and status receipt per lane. The parent
+orchestrator—not one council member—synthesizes shared findings, unique findings, contradictions,
+and skipped-lane reasons. Preserve dissent: majority vote is not evidence.
+
+The full roster states, private run-directory contract, scheduling rules, synthesis format, separate
+bookkeeping/useful-outcome rules, and GREEN gate are in [references/party-mode.md](references/party-mode.md).
+This is a skill/protocol, not an executable council engine. Complete error accounting is not useful
+success, and missing native receipts cannot be GREEN.
+
+For an ordinary hand-picked 2+ model consensus, use the same frozen-prompt pattern with only the
+requested lanes:
 
 ```bash
 KIMI_MODEL="${HEADLESS_RELAY_KIMI_MODEL:-kimi-code/k3}"
