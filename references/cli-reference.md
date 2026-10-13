@@ -3,12 +3,15 @@
 Full per-CLI detail for `headless-relay`. Flags verified 2026-07-02 against installed
 binaries: opencode 1.14.31, claude (Claude Code) 2.1.198, zcode CLI 0.15.0 (ZCode desktop app
 3.2.2, recipes re-verified on app 3.3.3); GPT section re-verified 2026-07-10 on codex-cli
-0.144.0 (GPT-5.6 launch); Grok section re-verified 2026-07-08 on grok 0.2.91 (grok-4.5 launch),
+0.144.0 (GPT-5.6 launch) and refreshed for GPT-6 Astra / Sol / Luna (Codex CLI ids; account
+access still gated — inspect `codex debug models` before pinning); Grok section re-verified 2026-07-08 on grok 0.2.91 (grok-4.5 launch),
 then re-assessed 2026-07-15 after xAI open-sourced Grok Build (source audit of commit
 `c68e39f`) — the whole-repo bundle is gone from source; the residuals are the two-root
 global-rule leak (Claude/Cursor compat from `$HOME` + grok's own `~/.grok/AGENTS.md`) and the
-unverifiable shipped binary; Antigravity section verified
-2026-07-08 on agy 1.1.0. Flags drift — re-check `--help` when a command errors with
+unverifiable shipped binary, then re-verified 2026-08-14 on grok 1.0.3 (grok-4.6 became the CLI default 2026-08-12; all helper flags intact, live relay smoke green); Antigravity section verified
+2026-07-08 on agy 1.1.0 and refreshed 2026-09-21 on agy 1.1.1 (`agy models` listed Gemini 3.8 Flash as the current top Gemini Flash tier). 2026-10-09 refresh: opencode 1.18.35, zcode CLI 0.16.9 (ZCode app 3.14.5), grok 1.0.50 and agy
+1.1.x re-checked, plus a new [Video understanding](#video-understanding-watching-a-clip) section
+(which lanes can actually watch a local clip). Flags drift — re-check `--help` when a command errors with
 `unexpected argument`.
 
 ## Contents
@@ -17,6 +20,7 @@ unverifiable shipped binary; Antigravity section verified
 - [GLM via ZCode — zcode --prompt](#glm-via-zcode--zcode---prompt)
 - [Grok — grok headless](#grok--grok-headless)
 - [Gemini via Antigravity — agy print mode](#gemini-via-antigravity--agy-print-mode)
+- [Video understanding (watching a clip)](#video-understanding-watching-a-clip)
 - [Claude — claude print mode](#claude--claude-print-mode)
 - [Output-format shapes and jq parsing](#output-format-shapes-and-jq-parsing)
 - [Full troubleshooting](#full-troubleshooting)
@@ -29,7 +33,7 @@ no argument is given (or the argument is `-`). If both are supplied, stdin is ap
 
 | Flag | Meaning |
 |------|---------|
-| `-m, --model <MODEL>` | Model id, e.g. `gpt-5.6-sol`. Omit to use the `~/.codex/config.toml` default. |
+| `-m, --model <MODEL>` | Model id, e.g. `gpt-6-sol` / `gpt-6-astra` (or `gpt-5.6-sol` if new ids are not on the account). Check with `codex debug models` (JSON catalog). Do not run `codex models` — that starts a session. Omit to use the `~/.codex/config.toml` default. |
 | `-c, --config <key=value>` | Override a config value (TOML). E.g. `-c model_reasoning_effort="ultra"`. |
 | `-s, --sandbox <MODE>` | `read-only` (default), `workspace-write`, `danger-full-access`. |
 | `--dangerously-bypass-approvals-and-sandbox` | No sandbox. EXTREMELY DANGEROUS; isolated containers only. |
@@ -71,13 +75,27 @@ codex exec --sandbox workspace-write \
   -c 'sandbox_workspace_write.network_access=true' "<task>"
 ```
 
-Models (GPT-5.6 launch, 2026-07-09): `gpt-5.6-sol` (frontier agentic coding), `gpt-5.6-terra`
-(balanced), `gpt-5.6-luna` (fast/affordable); `gpt-5.5` and `gpt-5.4` moved to legacy.
-Reasoning effort ladder is now `low | medium | high | xhigh | max | ultra` — `ultra` is
+Models (GPT-6 Astra 2026-09-03; GPT-6 Sol and Luna 2026-09-22): `gpt-6-astra` remains
+the most capable frontier model, `gpt-6-sol` targets strong agentic coding at lower latency,
+and `gpt-6-luna` is the lighter high-volume option. Their Codex ids are exactly those slugs;
+API access/pricing and ChatGPT subscription quotas are different surfaces. The GPT-5.6 family remains available:
+`gpt-5.6-sol` (high-capability, broader access), `gpt-5.6-terra` (balanced), `gpt-5.6-luna`
+(fast/affordable); `gpt-5.5` and `gpt-5.4` moved to legacy. Check enrollment with
+`codex debug models` (JSON catalog; `--bundled` skips refresh). Do **not** run
+`codex models`: on the 0.144 series that is not a catalog subcommand, so it starts an
+interactive session with the leftover words as the prompt. If the catalog JSON does not
+contain the desired GPT-6 slug, that account is not shown as enrolled — keep a listed
+fallback such as `gpt-5.6-sol` instead of forcing an unlisted id.
+Reasoning effort ladder is `low | medium | high | xhigh | max | ultra` — `ultra` is
 "maximum reasoning with automatic task delegation" (codex may fan out its own subagents).
-Two load-bearing notes, live-verified on 0.144.0: the 5.6 models DEFAULT TO `low` effort, so
-always pass `-c model="gpt-5.6-sol" -c model_reasoning_effort="ultra"` (or your chosen tier)
-explicitly for review-grade output; and the 0.142.x exec flag semantics are unchanged
+Astra's documented API effort set is `low | medium | high | xhigh | max` (no `ultra`);
+Sol/Luna additionally accept `none` in the API. Codex's `ultra` is a product tier with
+automatic delegation, not an API reasoning value. The public API's 1.05M context for
+GPT-6 does **not** mean this CLI/account has a 1.05M window; check its live metadata.
+Two load-bearing notes, originally live-verified on 0.144.0 for the 5.6 family: those models
+DEFAULT TO `low` effort, so pass a catalog-listed model plus
+`-c model_reasoning_effort="high"` / `"xhigh"` / `"max"` explicitly for
+review-grade output; and the 0.142.x exec flag semantics are unchanged
 (`--ask-for-approval` still rejected, network still requires the `-c` override above).
 
 Piping example (feed a `gh` log in, post the summary out):
@@ -93,7 +111,7 @@ or stdin pipe both work.
 
 | Flag | Meaning |
 |------|---------|
-| `-m, --model <provider/model>` | e.g. `zai-coding-plan/glm-5.2`. |
+| `-m, --model <provider/model>` | e.g. `zai-coding-plan/glm-5.3`. |
 | `--variant <name>` | Provider reasoning effort: `minimal`, `high`, `max`. Z.ai recommends `max` for coding. |
 | `--format <default\|json>` | `json` emits raw JSON events. |
 | `-c, --continue` | Continue the last session. |
@@ -104,18 +122,44 @@ or stdin pipe both work.
 | `--thinking` | Show thinking blocks. |
 | `--dangerously-skip-permissions` | Auto-approve permissions not explicitly denied. |
 
-Model id note: in OpenCode use the bare `zai-coding-plan/glm-5.2`. The `[1m]` suffix is the
+Model id note: in OpenCode use the bare `zai-coding-plan/glm-5.3`. The `[1m]` suffix is the
 Anthropic-endpoint convention used by other tools and does not apply here; review-sized prompts
 sit under the default context anyway.
 
-Do not use `-f`/`--file` for prompt attachment in scripts — it has misbehaved on prior
-versions. Pipe on stdin instead. For repeated calls, start `opencode serve` once and attach:
-`opencode run --attach http://localhost:4096 "…"` avoids MCP cold-boot per call.
+GLM-5.3 (launched 2026-08-14; same 743B base as 5.2, gains from scaled post-training) is live
+on the Coding Plan — `zai-coding-plan/glm-5.3` smoke-verified via `opencode run` the same day.
+Heads-up for API users: the new endpoint no longer allows disabling thinking (efforts are
+low/high/max only) — a breaking change for apps that ran with thinking off.
+
+Do not use `-f`/`--file` for prompt attachment in scripts. Pipe on stdin instead. Source-checked
+on 1.18.35 (`packages/opencode/src/cli/cmd/run.ts`): without `--attach`, `run -f` labels every file
+`text/plain`, so any binary file (image, PDF, video) fails with `Cannot read binary file`. Only
+`run --attach <opencode serve URL>` reads the file (≤10 MiB) and sends its detected MIME type. For
+repeated calls, start `opencode serve` once (it binds `127.0.0.1` by default and warns that it is
+unsecured without `OPENCODE_SERVER_PASSWORD`) and attach: `opencode run --attach
+http://127.0.0.1:4096 "…"` avoids MCP cold-boot per call. Video still does not reach GLM through
+this path, see [Video understanding](#video-understanding-watching-a-clip).
+
+**The desktop app does not update the CLI.** The OpenCode desktop app (`OpenCode.app`) and the
+headless CLI (`~/.opencode/bin/opencode`, installed by the official installer) are separate
+binaries; updating the app leaves an old CLI in place. Seen 2026-10-09 on macOS: a months-old CLI
+binary was killed at launch (`opencode --version` printed nothing, exit 137, crash reports
+`~/Library/Logs/DiagnosticReports/opencode-*.ips`, `codesign -v` → `invalid signature (code or
+signature have been modified)`), which looks like a silent hang. Fix: reinstall the CLI from the
+official release (`anomalyco/opencode`, formerly `sst/opencode`; the installer writes to
+`~/.opencode/bin`), e.g. `gh release download vX.Y.Z -R anomalyco/opencode -p
+opencode-darwin-arm64.zip`, compare the SHA-256 with the release asset digest, keep the old binary
+as a backup, then run the preflight (`opencode --version`, `opencode auth list`,
+`opencode models zai-coding-plan`). Verified 2026-10-09 on 1.18.35: the Z.AI Coding Plan catalog
+lists `glm-5.3`, `glm-5.3-flash`, `glm-5.3-highspeed`, `glm-5.2`, `glm-5.2-highspeed`, `glm-5.1`,
+`glm-5`, `glm-5-turbo`, `glm-4.7`, and `echo … | opencode run -m zai-coding-plan/glm-5.3 --variant
+max` answered.
 
 ## GLM via ZCode — zcode --prompt
 
 The ZCode desktop app (Z.ai's own GUI coding app) bundles a CLI. It is a first-class GLM path
-for users who do not have OpenCode. Status, verified live 2026-07-02 on app 3.2.2 / CLI 0.15.0:
+for users who do not have OpenCode. Status, verified live 2026-07-02 on app 3.2.2 / CLI 0.15.0,
+re-checked 2026-10-09 on app 3.14.5 / CLI 0.16.9:
 
 | Item | Status |
 |------|--------|
@@ -123,6 +167,8 @@ for users who do not have OpenCode. Status, verified live 2026-07-02 on app 3.2.
 | `zcode login` (OAuth) | BROKEN — `OAuth response is not valid JSON` (open bugs zai-org/feedback #51, #20) |
 | Official CLI / headless docs | None. Z.ai does not document the bundled CLI; non-interactive mode is open feature request #29. Treat this path as community-verified, may break on app updates |
 | API key for the free in-app tier | Not issued — free quota is app-locked. Paid Coding Plan users create a key at z.ai ("Individual Coding Plan" then "Plan Overview"). App users on any tier can bridge the app's own credential (recipe C) |
+| App 3.14.5 / CLI 0.16.9 packaging bug | Every call fails with `无法定位 CLI ZCode Built-in Provider Config：…/glm/provider/zcode-builtin.json, /config/provider/zcode-builtin.json` ("cannot locate the CLI ZCode built-in provider config"). The CLI looks for the file next to `zcode.cjs` (`glm/provider/`) or five levels up; the app ships it at `Contents/Resources/config/provider/`. Use the shim wrapper below. GLM-5.3 is exposed by this app version and the recipes below work on it |
+| Video via `--attach` | Does NOT reach the model (arrives as an empty placeholder, also with a config that declares video modality). See [Video understanding](#video-understanding-watching-a-clip) |
 
 The `zcode` command ships inside the app bundle. If it is not on PATH, add a wrapper (macOS
 example):
@@ -133,6 +179,34 @@ example):
 exec /Applications/ZCode.app/Contents/Resources/glm/zcode.cjs "$@"
 ```
 
+On app 3.14.5 the CLI cannot find its built-in provider file (table above). The CLI resolves
+the file relative to the script path it was started from (it does not follow the symlink), so a
+directory of symlinks fixes it without modifying the app. The wrapper falls back to the plain
+path once an app update ships the file where the CLI expects it:
+
+```sh
+# one-time shim (no app files are modified)
+G=/Applications/ZCode.app/Contents/Resources
+mkdir -p ~/.local/share/zcode-cli-shim && cd ~/.local/share/zcode-cli-shim
+ln -sfn "$G/glm/zcode.cjs" zcode.cjs
+ln -sfn "$G/glm/packages" packages
+ln -sfn "$G/config/provider" provider
+```
+
+```sh
+# ~/.local/bin/zcode  (chmod +x)
+#!/bin/sh
+SHIM="$HOME/.local/share/zcode-cli-shim"
+if [ -e /Applications/ZCode.app/Contents/Resources/glm/provider/zcode-builtin.json ] || [ ! -e "$SHIM/provider/zcode-builtin.json" ]; then
+  exec /Applications/ZCode.app/Contents/Resources/glm/zcode.cjs "$@"
+fi
+exec node "$SHIM/zcode.cjs" "$@"
+```
+
+Verified 2026-10-09: with the shim, `zcode --prompt "…" --mode plan --json` answers on
+`zai/glm-5.3` (the model reports itself as GLM-5.3). The CLI also reads `ZCODE_MODEL` for a
+one-off model override and `ZCODE_DATA_BASE_DIR` for an alternate config root.
+
 Do NOT `npm install zcode` or `zcode-cli` — unrelated 0.0.1 third-party stubs (supply-chain
 risk).
 
@@ -142,11 +216,13 @@ Because `zcode login` is broken, configure the CLI manually. All three recipes b
 live-verified end-to-end on CLI 0.15.0.
 
 **Recipe A — persistent config file (recommended).** Write `~/.zcode/cli/config.json` in
-exactly the shape the (broken) login flow would have written, then `chmod 600` it:
+exactly the shape the (broken) login flow would have written, then `chmod 600` it
+(model note, 2026-09-21: pin the recipes at `zai/glm-5.3`. GLM-5.2 is the previous
+generation — bump `model.main` if an older app config still has it):
 
 ```json
 {
-  "model": { "main": "zai/glm-5.2", "lite": "zai/glm-4.7" },
+  "model": { "main": "zai/glm-5.3", "lite": "zai/glm-5.3" },
   "provider": {
     "zai": {
       "kind": "anthropic",
@@ -157,8 +233,7 @@ exactly the shape the (broken) login flow would have written, then `chmod 600` i
         "baseURL": "https://api.z.ai/api/anthropic"
       },
       "models": {
-        "glm-5.2": { "name": "GLM-5.2" },
-        "glm-4.7": { "name": "GLM-4.7" }
+        "glm-5.3": { "name": "GLM-5.3" }
       }
     }
   }
@@ -174,7 +249,7 @@ wire format.
 
 ```bash
 ZCODE_API_KEY="YOUR_ZAI_API_KEY" \
-ZCODE_MODEL="zai/glm-5.2" \
+ZCODE_MODEL="zai/glm-5.3" \
 ZCODE_BASE_URL="https://api.z.ai/api/anthropic" \
 zcode --prompt "your question here"
 ```
@@ -190,10 +265,10 @@ the key):
 
 ```bash
 jq -n --arg key "$(jq -r '.provider["builtin:zai"].options.apiKey' ~/.zcode/v2/config.json)" '{
-  model: {main: "zai/glm-5.2", lite: "zai/glm-4.7"},
+  model: {main: "zai/glm-5.3", lite: "zai/glm-5.3"},
   provider: {zai: {kind: "anthropic", name: "Z.AI Coding Plan",
     options: {apiKey: $key, apiKeyRequired: true, baseURL: "https://api.z.ai/api/anthropic"},
-    models: {"glm-5.2": {name: "GLM-5.2"}, "glm-4.7": {name: "GLM-4.7"}}}}}' \
+    models: {"glm-5.3": {name: "GLM-5.3"}}}}}' \
   > ~/.zcode/cli/config.json && chmod 600 ~/.zcode/cli/config.json
 ```
 
@@ -295,7 +370,7 @@ both:
 Grok remains a **cloud model** either way — the prompt and Grok's reasoning go to xAI, open-source
 client or not.
 
-**Helpers (v3.0.0):** `grok_relay` (text) and `grok_media` (image/video) run every Grok call under a
+**Helpers (v3.1.1):** `grok_relay` (text) and `grok_media` (image/video) run every Grok call under a
 **hermetic child environment** — `env -i` with an allowlist, so only `PATH`, `HOME`, `GROK_HOME`,
 `TMPDIR`, `TERM`, the telemetry-off master switches, and ONE auth var reach grok; everything else
 (your other secrets AND grok's own endpoint / proxy / auth-provider-command / log / managed-config /
@@ -313,27 +388,67 @@ is a subshell (`name() ( … )`) with `set +eux` (xtrace off, so a key can't be 
 cleanup `trap`s on EXIT/INT/TERM/HUP. Scope is personal/consumer auth (subscription OAuth or
 `XAI_API_KEY`); team/enterprise managed-policy parity is unverified — managed-policy readers read
 `auth.json` directly from `GROK_HOME`, bypassing `GROK_AUTH_PATH`, so under the temp `GROK_HOME` it is
-not carried. The shape, for reference (use the real helpers in `SKILL.md`, don't hand-roll):
+not carried. Before any copy-paste call, check this login's authenticated `grok models`
+`Available models:` block. The snippets default to the previously supported 4.6;
+set `GROK_RELAY_MODEL=grok-4.7` only when that exact id is listed, or select a listed
+4.5 if 4.6 is absent. If none is available, skip Grok. The shape, for reference
+(use the real helpers in `SKILL.md`, don't hand-roll):
 
 ```bash
 gh=$(mktemp -d "${TMPDIR:-/tmp}/grok-home.XXXXXX")    # empty synthetic HOME + clean temp GROK_HOME (no external-config scan)
 iso=$(mktemp -d "${TMPDIR:-/tmp}/grok-iso.XXXXXX")     # empty non-git CWD (verify it is OUTSIDE any git worktree before use)
 ap="${GROK_AUTH_PATH:-${GROK_HOME:-$HOME/.grok}/auth.json}"   # real auth path (grok precedence), absolutised BEFORE the cd
 grokbin=$(command -v grok)                             # env -i uses a minimal PATH, so pass grok's absolute path
+model=${GROK_RELAY_MODEL:-grok-4.6}                    # choose 4.7 only if this login's catalog lists the exact id
 printf '[features]\ntelemetry = false\n[telemetry]\ntrace_upload = false\n[folder_trust]\nenabled = false\n[harness]\ndisable_codebase_upload = true\n[compat.claude]\nskills = false\nrules = false\nagents = false\nmcps = false\nhooks = false\nsessions = false\n[compat.cursor]\nskills = false\nrules = false\nagents = false\nmcps = false\nhooks = false\nsessions = false\n[compat.codex]\nskills = false\nrules = false\nagents = false\nmcps = false\nhooks = false\nsessions = false\n' > "$gh/config.toml"
 # HERMETIC: env -i is an ALLOWLIST — only these vars reach grok; EVERYTHING else (your other secrets
 # AND grok's endpoint/proxy/auth-provider-command/log/managed-config/compat overrides) is dropped.
-( cd "$iso" && env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$gh" GROK_HOME="$gh" TMPDIR="$gh" TERM=dumb \
-    GROK_TELEMETRY_ENABLED=false GROK_TELEMETRY_TRACE_UPLOAD=false GROK_EXTERNAL_OTEL=false GROK_AUTH_PATH="$ap" \
-    "$grokbin" -p "…" -m grok-4.5 --disable-web-search --sandbox strict --deny '*' )
+# grok 1.0.x's seatbelt is kernel-enforced and denies reading $ap outside the sandbox — ship a profile
+# extending strict with read/write on ONLY the auth dir (an unappliable CUSTOM profile makes grok
+# refuse to start, so this stays fail-closed):
+# Bounds the grant, then writes the profile. Writes NOTHING and returns non-zero when the auth dir is
+# unsafe to hand to a sandboxed process: /, your $HOME or any ancestor of it, a git repo root, or a
+# name that would break out of the TOML string. Resolve physically first so a symlinked or ../-laden
+# path cannot smuggle a broader grant past those bounds. (Same bounds as the shipped helpers.)
+relayauth_profile() (   # $1 = auth.json path, $2 = the temp GROK_HOME to write the profile into
+  # subshell body: no `local` in POSIX sh, so this keeps _apd/_hp out of the caller's namespace
+  [ -d "${2:-}" ] || exit 1
+  case "$1" in /*) ;; *) exit 1 ;; esac       # absolute only: absolutising a relative path via $(pwd) can strip a newline from the CWD name and silently name a sibling
+  { [ -f "$1" ] && [ -r "$1" ]; } || exit 1   # a directory would satisfy both identity checks below and grant its PARENT
+  [ "$(printf '%s' "$1" | wc -l | tr -d ' ')" = 0 ] || exit 1
+  _apd=$(cd "$(dirname "$1")" 2>/dev/null && pwd -P) || exit 1
+  [ "$_apd/${1##*/}" -ef "$1" ] || exit 1       # file identity (inode+device), not mere readability
+  [ "$_apd" -ef "$(dirname "$1")" ] || exit 1   # DIRECTORY identity: a same-inode alias cannot spoof this
+  _hp=$(cd "$HOME" 2>/dev/null && pwd -P) || _hp=$HOME
+  [ "$_apd" = / ] && exit 1
+  case "$_hp/" in "${_apd%/}"/*) exit 1 ;; esac
+  { [ -e "$_apd/.git" ] || { [ -d "$_apd/objects" ] && [ -d "$_apd/refs" ] && [ -e "$_apd/HEAD" ]; }; } && exit 1
+  case "$_apd" in *[[:cntrl:]]*) exit 1 ;; esac   # the raw-path newline check cannot see a control char introduced by symlink resolution
+  case "$_apd" in *'"'*|*'\'*) exit 1 ;; esac
+  case "$_apd" in *'*'*|*'?'*|*'['*) exit 1 ;; esac    # grok reads a trailing /* or /** as the PARENT dir; other globs are skipped
+  _tb=$(printf '\t'); case "$_apd" in ' '*|*' '|"$_tb"*|*"$_tb") exit 1 ;; esac
+  printf '[profiles.relayauth]\nextends = "strict"\nread_write = ["%s"]\n' "$_apd" > "$2/sandbox.toml" || exit 1
+  [ -s "$2/sandbox.toml" ]
+)
+if relayauth_profile "$ap" "$gh"; then
+  ( cd "$iso" && env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$gh" GROK_HOME="$gh" TMPDIR="$gh" TERM=dumb \
+      GROK_TELEMETRY_ENABLED=false GROK_TELEMETRY_TRACE_UPLOAD=false GROK_EXTERNAL_OTEL=false GROK_AUTH_PATH="$ap" \
+      "$grokbin" -p "…" -m "$model" --disable-web-search --sandbox relayauth --deny '*' )
+else
+  echo "unsafe auth dir — not starting grok" >&2   # never `exit` in a pasteable block: it would close an interactive shell
+fi
 rm -rf "$gh" "$iso"
 ```
 
 `--deny '*'` is the load-bearing tool block — binary-observed on 0.2.99 to actually refuse tool calls
 (forcing one produced `Denied by permission policy`) and it already covers `web_search`. `grok_relay`
-additionally keeps `--disable-web-search` and a best-effort `--sandbox strict` as cheap extra layers
-(the sandbox fails open for built-in profiles — an inapplicable profile warns and continues
-unenforced rather than refusing to start — so it is not relied on). `--deny '*'` also blocks
+additionally keeps `--disable-web-search` and a best-effort seatbelt (`--sandbox relayauth` on subscription auth — strict extended with read/write on only the auth dir, written into the temp `GROK_HOME`; plain `strict` on the API-key branch) as cheap extra layers
+(scope, verified on grok 1.0.3: a CUSTOM profile that cannot be applied makes grok **refuse to
+start** — so the subscription branch's `relayauth` is fail-closed — while a BUILT-IN profile that
+cannot be applied warns and continues unenforced, leaving the API-key branch's `strict` best-effort.
+Neither is load-bearing: the isolation rests on `env -i`, the empty `HOME` / temp `GROK_HOME`, the
+non-git CWD, and the tool restriction. On grok 0.2.x the custom-profile path is unverified — the
+subscription branch assumes 1.0.x). `--deny '*'` also blocks
 `image_gen`/`image_edit`, which is why `grok_media` swaps it for a `--tools` allow-list of just the
 four media tools (plus `--disallowed-tools search_tool,use_tool`). For the API-key branch, pass
 `XAI_API_KEY` in place of `GROK_AUTH_PATH` — under `env -i` the other branch's vars are simply absent
@@ -362,9 +477,13 @@ from source. Provenance is mixed — labels below; verify per version:
 
 See the helper definitions and kill-switch notes in `SKILL.md`.
 
-Headless via `-p`. Use `-m grok-4.5` — xAI's coding/agents frontier model (launched
-2026-07-08, trained with Cursor; 500K context; reasoning-effort supported, default `high`).
-It is the CLI default on 0.2.91, but pass `-m` explicitly anyway: defaults drift, and the
+Headless via `-p`. Use `-m grok-4.7` only if this login's `grok models` output lists the
+exact id under `Available models:` — xAI's coding/agents frontier model (launched
+2026-09-21; 500K context; same published $2/$6 per 1M tokens class as 4.6).
+Pass `-m` explicitly: defaults drift. The helper defaults to 4.6 for older accounts;
+select 4.7 with `GROK_RELAY_MODEL=grok-4.7` only after that account-catalog check.
+If 4.6 is absent too, use a listed 4.5 or skip Grok. `grok-4.6` (2026-08-12) remains served as the previous
+flagship, and `grok-4.5` (2026-07-08, trained with Cursor) is still served. The
 alternative `grok-composer-2.5-fast` (Cursor's fast coding model) is a lighter tier. The
 former `grok-build` model id was RETIRED from the CLI at the 4.5 launch and now fails with
 `unknown model id`; the separate `grok-build-0.1` survives only on the metered Code API, not
@@ -375,10 +494,11 @@ as a CLI model.
 | `-p, --single <PROMPT>` | Single-turn prompt to stdout, then exit. |
 | `--prompt-file <PATH>` | Single-turn prompt from a file. |
 | `--prompt-json <JSON>` | Prompt as JSON content blocks. |
-| `-m, --model <MODEL>` | Model id, e.g. `grok-4.5`. |
+| `-m, --model <MODEL>` | Model id, e.g. `grok-4.7`. |
+| `--sandbox <PROFILE>` | Seatbelt profile: builtin `strict` / `workspace`, or custom from `$GROK_HOME/sandbox.toml` (`[profiles.X]` with `extends` + `read_only` / `read_write` DIRECTORY lists). 1.0.x change: kernel-enforced — `strict` denies file reads outside cwd / `GROK_HOME` / `TMPDIR`, so subscription auth via an outside `GROK_AUTH_PATH` fails with "Not signed in"; the helpers ship `relayauth` (strict + read_write on only the auth dir). An unappliable CUSTOM profile makes grok refuse to start (fail closed, verified on 1.0.3); an unappliable BUILT-IN profile only warns and continues unenforced. The grant is bounded: the resolved dir must actually hold the credential, and is never `/`, never `$HOME` or an ancestor, never a git repository (worktree or bare), never carries `*` `?` `[`, a control character, or a leading/trailing ASCII space or tab (grok reads a trailing `/*` as the PARENT dir and skips other globs), resolved physically, TOML-safe. |
 | `--output-format <FMT>` | `plain` (default), `json`, `streaming-json`. |
 | `--disable-web-search` | Disable web search + fetch. Mandatory for diff-deterministic review. |
-| `--effort <LEVEL>` | `low\|medium\|high\|xhigh\|max`. `--reasoning-effort` also exists. grok-4.5 supports reasoning effort (model default `high`; `--effort high` live-verified). |
+| `--effort <LEVEL>` | `low\|medium\|high\|xhigh\|max`. `--reasoning-effort` also exists. reasoning effort supported (model default `high`; `--effort high` live-verified on grok-4.5 at its launch). |
 | `--best-of-n <N>` | Run the task N ways in parallel, pick the best (headless only). |
 | `--check` | Append a self-verification loop to the prompt (headless only). |
 | `-r, --resume [id]` / `-c, --continue` | Resume by id / most recent. |
@@ -403,9 +523,12 @@ gh=$(mktemp -d "${TMPDIR:-/tmp}/grok-home.XXXXXX")
 iso=$(mktemp -d "${TMPDIR:-/tmp}/grok-iso.XXXXXX")
 ap="${GROK_AUTH_PATH:-${GROK_HOME:-$HOME/.grok}/auth.json}"
 grokbin=$(command -v grok)
+model=${GROK_RELAY_MODEL:-grok-4.6}  # select 4.7 only after the account-catalog gate above
+# relayauth_profile is defined in the "Data egress" section above — it bounds the grant before writing
+relayauth_profile "$ap" "$gh" || echo "unsafe auth dir — grok will fail to authenticate" >&2   # no `exit`: this block is pasted into a live shell
 ( cd "$iso" && env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$gh" GROK_HOME="$gh" TMPDIR="$gh" TERM=dumb \
     GROK_TELEMETRY_ENABLED=false GROK_TELEMETRY_TRACE_UPLOAD=false GROK_EXTERNAL_OTEL=false GROK_AUTH_PATH="$ap" \
-    RUST_LOG=debug "$grokbin" -p "test" -m grok-4.5 --disable-web-search --sandbox strict --deny '*' 2>/tmp/grok-debug.log ) &
+    RUST_LOG=debug "$grokbin" -p "test" -m "$model" --disable-web-search --sandbox relayauth --deny '*' 2>/tmp/grok-debug.log ) &
 GROK_PID=$!; sleep 75; grep -c errorcode_502 /tmp/grok-debug.log; kill "$GROK_PID" 2>/dev/null
 rm -rf "$gh" "$iso"
 ```
@@ -483,10 +606,13 @@ Walk this ladder in order and stop at the first verdict:
    iso=$(mktemp -d "${TMPDIR:-/tmp}/grok-iso.XXXXXX")
    ap="${GROK_AUTH_PATH:-${GROK_HOME:-$HOME/.grok}/auth.json}"
    grokbin=$(command -v grok)
+   model=${GROK_RELAY_MODEL:-grok-4.6}  # only opt into 4.7 after an exact `Available models:` match
+   # relayauth_profile is defined in the "Data egress" section above — it bounds the grant before writing
+   relayauth_profile "$ap" "$gh" || echo "unsafe auth dir — grok will fail to authenticate" >&2   # no `exit`: this block is pasted into a live shell
    ( cd "$iso" && env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$gh" GROK_HOME="$gh" TMPDIR="$gh" TERM=dumb \
        GROK_TELEMETRY_ENABLED=false GROK_TELEMETRY_TRACE_UPLOAD=false GROK_EXTERNAL_OTEL=false GROK_AUTH_PATH="$ap" \
        perl -e 'alarm shift; exec @ARGV' 120 \
-       "$grokbin" -p "Reply with exactly GROK_OK and nothing else." -m grok-4.5 --disable-web-search --sandbox strict --deny '*' ); rc=$?
+       "$grokbin" -p "Reply with exactly GROK_OK and nothing else." -m "$model" --disable-web-search --sandbox relayauth --deny '*' ); rc=$?
    rm -rf "$gh" "$iso"
    ```
 
@@ -521,7 +647,7 @@ login. All behavior below live-verified 2026-07-08 on agy 1.1.0.
 |------|---------|
 | `-p, --print <PROMPT>` | Run a single prompt non-interactively, print the response, exit. `--prompt` is an alias. |
 | `--print-timeout <dur>` | Print-mode wait cap, default `5m0s`. |
-| `--model <name>` | Display-string model name from `agy models`, e.g. `"Gemini 3.1 Pro (High)"`. Omit to use the user's configured default. |
+| `--model <name>` | Display-string model name from `agy models`, e.g. `"Gemini 3.8 Flash (High)"`. Omit to use the user's configured default. |
 | `--add-dir <path>` | Add a directory to the workspace (repeatable) — it also BECOMES the working directory. Without it agy works in its own scratch dir, `~/.gemini/antigravity-cli/scratch`. |
 | `--mode <mode>` | `accept-edits`, `plan`. Use `plan` for advice-only runs. |
 | `--sandbox` | Enable terminal restrictions. |
@@ -529,10 +655,12 @@ login. All behavior below live-verified 2026-07-08 on agy 1.1.0.
 | `-c, --continue` / `--conversation <id>` | Resume the most recent conversation / a specific one. |
 | `-i, --prompt-interactive` | Run a prompt then stay interactive — NOT headless; avoid in scripts. |
 
-Model menu (`agy models`, 2026-07-08): Gemini 3.5 Flash (Low/Medium/High), Gemini 3.1 Pro
-(Low/High), Claude Sonnet 4.6 (Thinking), Claude Opus 4.6 (Thinking), GPT-OSS 120B (Medium) —
+Model menu (`agy models`, 2026-09-21 on agy 1.1.1): Gemini 3.8 Flash (Low/Medium/High),
+Gemini 3.7 Flash, Gemini 3.6 Flash, Gemini 3.1 Pro (Low/High), Claude Sonnet 4.6 (Thinking),
+Claude Opus 4.6 (Thinking), GPT-OSS 120B (Medium) —
 the non-Google models are served through Google's platform. The reasoning tier is baked into
-the model name; `"Gemini 3.1 Pro (High)"` is the top Gemini tier.
+the model name; `"Gemini 3.8 Flash (High)"` is the current top Gemini Flash tier on this
+CLI (Pro remains available as `"Gemini 3.1 Pro (High)"`).
 
 Notes, all live-verified:
 - **The old Gemini CLI's per-user API concurrency cap is gone**: three parallel `agy -p` runs
@@ -611,6 +739,8 @@ default mode needs no `OPENAI_API_KEY`; a CLI fallback `scripts/image_gen.py` us
 `gpt-image-2`). It works headless via `codex exec` — verified 2026-07-10 on codex-cli 0.144.0,
 which generated a blue-circle PNG into the target dir. Output also mirrors to
 `~/.codex/generated_images/<session>/exec-<uuid>.png`.
+The copy-paste image pin below is the **tested** `gpt-5.6-sol`. Catalog presence of
+`gpt-6-sol`, `gpt-6-luna`, or `gpt-6-astra` is not image-gen proof for those ids.
 
 ```bash
 cd /path/to/output-dir
@@ -647,7 +777,7 @@ alternative). No native VIDEO tool (agy self-reports video is unsupported).
 cd /path/to/output-dir
 agy -p "Call your generate_image tool immediately — do not research, spawn subagents, or use a
    skill. Generate a <description>. Save it to the current directory. Print exactly:
-   SAVED: <absolute path>." --model "Gemini 3.1 Pro (High)" --add-dir "$PWD" </dev/null
+   SAVED: <absolute path>." --model "Gemini 3.8 Flash (High)" --add-dir "$PWD" </dev/null
 ```
 
 Caveat: run the image lane **solo / sequentially** — the agy parallel-burst hang
@@ -661,16 +791,152 @@ requirement.
 
 ### GLM / Claude
 
-No image or video generation in `opencode` / `zcode` / `claude -p`. Text only.
+No image or video generation in `opencode` / `zcode` / `claude -p`. Text only. (Watching a
+video is a different question: see the next section.)
+
+## Video understanding (watching a clip)
+
+Different from generation: the model is asked to *watch* a local clip (event footage, a demo
+recording) and describe it, transcribe it, pick a usable window, or flag brand risks. Live-tested
+2026-10-09 with the same prompt on the same 40-60 s phone clips (stage talk with speech and
+crowd laughter):
+
+| Lane | Watches a local clip headlessly? | What it actually receives |
+|------|----------------------------------|---------------------------|
+| Gemini via `agy` (`"Gemini 3.8 Flash (High)"`) | **YES** | About 1 frame per second **plus an automatic speech transcript**; not raw audio (music, applause and crowd noise are inferred, not heard). Timelines matched hand-checked frames within ~1 s (2026-10-05 test); transcripts are detailed enough to find candidate quotes, but re-check a quote before captioning it |
+| GLM-5.3-Flash (Z.ai Coding Plan) | **Frames only, and only via the API** | No speech at all: it says so honestly and cannot transcribe. Misread on-screen text once. Neither GLM CLI can pass the video (below) |
+| Grok 4.7 (`grok` 1.0.50) | **NO** | Nothing usable (below) |
+| GPT (Codex), Claude | Not tested in this pass | — |
+
+**Gemini recipe.** Put the clip alone in a freshly created private directory (re-encode 4K
+footage to ~540p first: smaller upload, same answer), make that directory the workspace, run it
+solo (the agy burst hang applies) and cap it with a timeout:
+
+```bash
+# fresh private workspace per clip: never reuse a shared dir (agy gets read access to all of it)
+watch_clip() (   # subshell: its own EXIT trap, so each clip's workspace is removed, also in a loop
+  W=$(mktemp -d "${TMPDIR:-/tmp}/watch.XXXXXX") && W=$(cd "$W" && pwd -P) || exit 1   # absolute, even if TMPDIR is relative
+  trap 'rm -rf "$W"' EXIT
+  ffmpeg -nostdin -v error -i "$1" -vf scale=-2:540 \
+    -c:v libx264 -crf 30 -c:a aac -b:a 96k "$W/clip.mp4" || exit 1
+  P=$(cat "$2") || exit 1   # read the prompt before cd; keep it out of the workspace
+  # macOS has no `timeout`; perl's alarm bounds the run (agy can hang)
+  cd "$W" && perl -e 'alarm shift; exec @ARGV' 300 \
+    agy -p "$P" --model "Gemini 3.8 Flash (High)" --add-dir "$W" --mode plan --sandbox </dev/null
+  rc=$?; exit "$rc"
+)
+watch_clip input.mp4 watch-prompt.md
+# many clips: while IFS= read -r f <&3; do watch_clip "$f" watch-prompt.md; done 3< clips.txt
+```
+
+`--mode plan --sandbox` keeps this analysis-only: print mode otherwise runs shell, file and
+network tools unprompted (see the notes above), and a clip or prompt can carry misleading
+instructions. Verified 2026-10-09: with both flags the clip was still watched and transcribed,
+while a request to create a file in the workspace was refused. Tell it to only read `clip.mp4`, not to search or create files, to mark unclear words as
+`[unclear]`, and to say so if it cannot hear audio. For many clips, call `watch_clip` in a loop
+fed on a separate descriptor (as shown), so ffmpeg and agy cannot consume the list. Keep the prompt to watching the clip: a prompt
+that also asks it to list the directory or use another tool can end with `jetski: no output
+produced — a tool required the "mcp" permission that headless mode cannot prompt for` (seen
+2026-10-09; the same recipe with a watch-only prompt answered). Keep `ffmpeg -nostdin` in any loop
+(ffmpeg otherwise eats the loop's stdin).
+
+**GLM: why the CLIs fail, and the path that works.**
+- `opencode` 1.18.35 lists `zai-coding-plan/glm-5.3-flash` with `input.video: true`
+  (`opencode models zai-coding-plan --verbose`), but cannot deliver it: plain `run -f clip.mp4`
+  fails with `Cannot read binary file` (every file is sent as `text/plain`), and `run --attach
+  <opencode serve>` sends `video/mp4` only for the `@ai-sdk/openai-compatible` provider to throw
+  `'file part media type video/mp4' functionality not supported`. `run` then **exits 0 with empty
+  output**; the error is visible only in `opencode serve --print-logs`.
+- `zcode` 0.16.9 `--attach clip.mp4` reaches the model as an empty placeholder, even with a config
+  that declares the model's video modality.
+- What works: the Coding Plan's OpenAI-compatible endpoint itself accepts a `video_url` part with a
+  base64 data URI. Keep the clip under 8 MB. Read the key inside the process; never put it on the
+  command line:
+
+```python
+import base64, json, os, urllib.request
+key = os.environ["ZAI_API_KEY"]            # your Coding Plan key, loaded by your own secret helper
+clip = base64.b64encode(open("clip.mp4", "rb").read()).decode()
+body = {"model": "glm-5.3-flash", "max_tokens": 8000, "messages": [{"role": "user", "content": [
+    {"type": "video_url", "video_url": {"url": "data:video/mp4;base64," + clip}},
+    {"type": "text", "text": open("watch-prompt.md").read()}]}]}
+req = urllib.request.Request("https://api.z.ai/api/coding/paas/v4/chat/completions",
+    data=json.dumps(body).encode(), method="POST",
+    headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+print(json.load(urllib.request.urlopen(req, timeout=600))["choices"][0]["message"]["content"])
+```
+
+  A 40 s clip took ~25-70 s. Z.ai also ships a Vision MCP server (`video_analysis`, local or
+  remote clips up to 8 MB) for MCP-capable clients; it was not tested here.
+
+**Grok: no video input.** Source (`xai-org/grok-build` main `2bdd1d6`) and binary 1.0.50 agree:
+`read_file` lists `mp4`/`mov` as binary and skips them (`Cannot read binary file`), and the headless
+CLI forwards only Image blocks from `--prompt-json` / a `.json` `--prompt-file` (no video block;
+audio and resource blocks are dropped). A clip sent as an image block came back as "format wasn't
+recognized". Inline base64 in `--prompt-json` also hits the shell's argument-length limit; use a
+`.json` `--prompt-file` for large content blocks. Grok's video tools generate video, they do not
+read it.
+
+**Verify before acting on a model's flag.** In the same test a model misread a sponsor logo on a
+stage screen as an offensive word; a zoomed frame showed an ordinary brand name. Zoom into the
+frame yourself before treating a brand-safety flag as real, and do not caption a quote unless the
+transcript reproduces it word for word. Speaker identity is not stable either: two Gemini runs on
+the same clip named two different people (one of them a speaker who was not on stage), so take
+names from the on-screen lower third or your own check, never from the model alone.
 
 ## Claude — claude print mode
 
 `claude -p` / `--print` runs Claude Code non-interactively: same agent loop, prints a result,
-exits. Any CLI option works with `-p`.
+exits. Any CLI option works with `-p`. Anthropic released `claude-opus-5-5` on 2026-09-22;
+the **Claude Code binary must be 2.1.280+**. Version 2.1.260 rejects the id with HTTP 400
+even while logged in; no prompt content is a substitute for a supported CLI. In an allowed
+first-party Claude Code workflow, after checking version and auth, make one bounded
+tool-less call with `--model claude-opus-5-5 --safe-mode --tools "" --output-format json`
+and require success plus `modelUsage` containing `claude-opus-5-5`. Do not mistake a
+successful-looking text response or the requested flag for proof of the served model;
+do not auto-fallback to another id. For a non-Anthropic orchestrator, the compliance
+gate in `SKILL.md` still applies — a newer CLI does not relax it.
+
+On an account with Claude Code **2.1.280+**, verify the served model with a bounded,
+tool-less print-mode turn (this sends only the synthetic prompt to Anthropic; it
+prints no response or credential content):
+
+```bash
+python3 - <<'PY'
+import json
+import subprocess
+import sys
+
+try:
+    run = subprocess.run(
+        ["claude", "-p", "Reply with exactly OPUS55_PROBE_OK. Do not use tools.",
+         "--model", "claude-opus-5-5", "--safe-mode", "--tools", "",
+         "--no-session-persistence", "--output-format", "json"],
+        capture_output=True, text=True, timeout=90, check=False,
+    )
+except subprocess.TimeoutExpired:
+    sys.exit("Claude model probe timed out")
+if run.returncode != 0:
+    sys.exit("Claude Code rejected the bounded model probe; check version/auth")
+try:
+    result = json.loads(run.stdout)
+except json.JSONDecodeError:
+    sys.exit("Claude Code did not return JSON")
+if not isinstance(result, dict):
+    sys.exit("Claude Code returned an unexpected JSON shape")
+served = result.get("modelUsage")
+if result.get("is_error") or not isinstance(served, dict) or "claude-opus-5-5" not in served:
+    sys.exit("Requested Claude model was not confirmed by modelUsage")
+print("OPUS55_MODEL_CONFIRMED")
+PY
+```
+
+Treat any nonzero/timeout/mismatched `modelUsage` as unavailable; do not fall back
+silently or call the print-mode probe an authenticated subscription success.
 
 | Flag | Meaning |
 |------|---------|
-| `--model <model>` | Alias (`fable`, `opus`, `sonnet`) or full name (`claude-fable-5`). |
+| `--model <model>` | Alias (`fable`, `opus`, `sonnet`) or full name (`claude-fable-5-1`). |
 | `--output-format <fmt>` | `text` (default), `json` (single result), `stream-json` (NDJSON). |
 | `--input-format <fmt>` | `text` (default), `stream-json`. |
 | `--effort <level>` | `low\|medium\|high\|xhigh\|max`. |
@@ -748,19 +1014,24 @@ structured output for the precise reason. When capturing a piped tool's exit thr
 | Codex behaves differently on another machine (writes/network that "shouldn't" work) | exec loads `~/.codex/config.toml`; `on-request` + auto-reviewer configs can escalate failed commands out of the sandbox | Pass explicit `--sandbox`/`-c` flags, or `--ignore-user-config` for reproducible runs |
 | Codex "network access restricted", `gh`/`curl` fail | `workspace-write` blocks network by default | Add `-c 'sandbox_workspace_write.network_access=true'` |
 | Codex stops with a clarifying question instead of reviewing | Default read-only sandbox blocked a command it needed | Escalate sandbox only as far as needed; or pre-fetch data into the prompt file |
-| Codex answer seems shallow on a 5.6 model | GPT-5.6 models default to LOW reasoning effort | Pass `-c model_reasoning_effort="high"` / `"ultra"` explicitly (or pin it in config.toml) |
+| Codex answer seems shallow on a 5.6 / 6 model | GPT-5.6 models default to LOW reasoning effort; Astra may still need an explicit effort pin | Pass `-c model="gpt-6-astra"` (or `gpt-5.6-sol`) and `-c model_reasoning_effort="high"` / `"xhigh"` / `"max"` (or `"ultra"` on 5.6) explicitly (or pin it in config.toml) |
 | Prompt with backticks / `$` / newlines mangled or executed | Shell interpreted the inline `"…"` | Write to a file; feed via stdin, `--prompt-file`, or a quoted `"$(cat file)"` |
 | You ran an old, pre-2026-07-15 Grok Build in a real repo | Older versions bundled + uploaded the whole tracked repo + git history to xAI GCS (see the data-egress section above; the path is gone from source in the open-sourced release) | Follow [../SECURITY.md](../SECURITY.md) to check logs and rotate any exposed secrets |
 | "Is Grok read-only / local / safe?" | No — it's a cloud model like the others. The whole-repo upload is gone per the 2026-07-15 source audit; the global-rule leak and the unverifiable binary remain | Never present Grok as local; run it through `grok_relay`'s hermetic env-i + empty-HOME + clean-temp-GROK_HOME shape either way |
 | Grok stderr noise: `AuthorizationRequired`, `Skipping MCP tool` (stdout still arrives) | Cosmetic startup noise + digit-prefixed MCP tool names | Pipe `2>/dev/null` |
 | Grok `-p` hangs 2+ min, no stdout (stderr may show `worker quit with fatal … Auth(AuthorizationRequired)`, or nothing) | Provider-side 502 from `cli-chat-proxy.grok.com` (CLI swallows it), or a stale cached token | Run the `RUST_LOG=debug` diagnosis in the Grok section: 502s in the log = provider outage, skip Grok and retry later; no 502s + fatal auth line = `grok login` + one retry. Wrap unattended calls in a timeout |
 | Grok surfaces unrelated tweets/blogs as "evidence" | Web search left on | Add `--disable-web-search` |
-| Grok: `Couldn't set model 'grok-build': Invalid params: "unknown model id"` | `grok-build` retired from the CLI at the grok-4.5 launch (2026-07-08) | Use `-m grok-4.5` |
+| Grok: `Couldn't set model 'grok-build': Invalid params: "unknown model id"` | `grok-build` retired from the CLI at the grok-4.5 launch (2026-07-08) | Use an id listed for this account, e.g. `-m grok-4.7` only when `grok models` lists it |
 | Grok: `grok models` prints "You are not authenticated." though login should be fine | Header mirrors an expired cached access token read at process start; the same call then refreshes and fetches the catalog (routine after idle) | If a model list appears below the header → **available**, use the lane. Only "not authenticated" with NO model list is real: auth.json present → one bounded real call decides; auth.json absent → `grok login`. Match on `Available models:` / `Default model:`, not the header. `--yolo` / `--always-approve` are permission flags, never the fix |
-| Grok answer seems shallow | A lighter model (e.g. `grok-composer-2.5-fast`) was selected | Pass `-m grok-4.5` explicitly |
-| OpenCode `-f` file attach errors | Known `-f` issue on some versions | Pipe the prompt on stdin instead |
+| Grok answer seems shallow | A lighter model (e.g. `grok-composer-2.5-fast`) was selected | Pin an id shown in this account's `grok models`; use `-m grok-4.7` only if explicitly listed |
+| OpenCode `-f` file attach errors / `Cannot read binary file` | Without `--attach`, `run -f` sends every file as `text/plain` | Pipe text prompts on stdin; for binary files run `opencode serve` and `run --attach http://127.0.0.1:<port>` (video still fails, see Video understanding) |
+| `opencode --version` / `run` prints nothing (looks hung), exit 137 | An old CLI binary in `~/.opencode/bin` killed at launch by macOS (`codesign -v` → invalid signature); updating the desktop app does not update the CLI | Reinstall the CLI from the official `anomalyco/opencode` release (check the SHA-256), then rerun the preflight |
+| `opencode run --attach … -f clip.mp4` exits 0 with no output | `@ai-sdk/openai-compatible` rejects video file parts; the error is only in `opencode serve --print-logs` | Use the Coding Plan API `video_url` path or Gemini (Video understanding section) |
+| zcode: `无法定位 CLI ZCode Built-in Provider Config：…` | ZCode app 3.14.5 / CLI 0.16.9 ships the provider file at `Resources/config/provider/`, the CLI looks in `glm/provider/` | Use the symlink shim wrapper in the ZCode section; no app files need changing |
+| zcode `--attach clip.mp4`: the model says nothing came through | The CLI does not forward video to the model | Use the Coding Plan API `video_url` path or Gemini |
+| Grok cannot "see" a video file | `read_file` skips `mp4`/`mov` as binary; only Image content blocks are forwarded | No Grok video input; use Gemini |
 | zcode: `Model config is missing. Create ~/.zcode/cli/config.json …` | No CLI config and no env vars | Apply Recipe A, B, or C above |
-| zcode config written but `model: Invalid input` in `~/.zcode/cli/log/` | `model.main` written as an object or bad ref | `model.main` must be a `provider/model` STRING, e.g. `"zai/glm-5.2"` |
+| zcode config written but `model: Invalid input` in `~/.zcode/cli/log/` | `model.main` written as an object or bad ref | `model.main` must be a `provider/model` STRING, e.g. `"zai/glm-5.3"` |
 | `zcode login`: `OAuth response is not valid JSON` | Open Z.ai bug (feedback #51, #20) | Skip login; use Recipe A/B/C |
 | GLM cites a CI yml / vercel.json / env change absent from the diff | GLM tends to hallucinate infrastructure claims | Verify against the real file before acting |
 | GLM confuses similar functions across files | Known limitation | Cross-check its findings against actual file paths |
@@ -768,6 +1039,7 @@ structured output for the precise reason. When capturing a piped tool's exit thr
 | agy file operations land in `~/.gemini/antigravity-cli/scratch` | Antigravity's default working dir is its own scratch workspace, not your cwd | Pass `--add-dir /path/to/repo` (it becomes the working directory); use absolute paths in prompts |
 | agy: `flag needs an argument: -print` | stdin piping is not supported | Use `agy -p "$(cat file)"` — quoted command substitution passes the bytes verbatim |
 | agy modifies files you only wanted reviewed | Print mode runs tools unprompted (yolo-like) | Add `--mode plan` (advice-only) or `--sandbox` |
+| agy: `jetski: no output produced — a tool required the "mcp" permission …` | The prompt made agy reach for a tool that headless mode auto-denies (e.g. listing a directory) | Keep the prompt to the task (e.g. watch only `clip.mp4`) and rerun; do not reach for `--dangerously-skip-permissions` |
 | agy `-p` hangs forever inside a parallel multi-CLI burst | agy 1.1.0 timing/load bug when 3+ other model CLIs run concurrently (solo/pairwise reliable; stagger insufficient) | Run the Gemini lane sequentially around the burst; always cap agy with a timeout |
 | CLI missing or "not authenticated" | Not installed / logged out | Report it, skip that model; run `codex login` / `opencode auth login` / `grok login` as needed — do not substitute another model silently. Exception: Grok's "not authenticated" from `grok models` is not conclusive — walk the Grok availability ladder first |
 | Long run hangs the shell tool | Tool-level timeout | Set an explicit timeout, or run in background and poll |

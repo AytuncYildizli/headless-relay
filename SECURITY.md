@@ -9,7 +9,7 @@ wire capture. On **2026-07-15 xAI open-sourced Grok Build** (Apache-2.0,
 default. A source audit of that release (commit `c68e39f`) found the **whole-repo bundle path is
 gone from the source**, the remaining trace-upload defaults **off**, and your **local
 `~/.grok/config.toml` beats xAI's remote settings**. Two residual concerns remain, so headless-relay
-(v3.0.0) still routes Grok through two small helpers: they run `grok` under a **hermetic child
+(v3.0.0+) still routes Grok through two small helpers: they run `grok` under a **hermetic child
 environment** (`env -i` allowlist — only a handful of vars reach grok, dropping your other secrets and
 grok's own endpoint / auth-provider-command / log / compat overrides) with an **empty synthetic
 `HOME`** AND a **clean temporary `GROK_HOME`** (so it reads neither your `~/.claude` / `~/.cursor` /
@@ -148,9 +148,16 @@ the `~/.grok/AGENTS.md` + `~/.claude` global-rule leak reproduced on every call 
 clean `GROK_HOME` + synthetic `HOME`, and `--deny '*'` refused a forced tool call. The open-sourced
 code now explains each of those observations.
 
+A later check on the shipped 1.0.x line (grok 1.0.0, 2026-08-08; behavior unchanged on 1.0.3): the
+`[compat.*]` config cells now cover plugin-delivered skills too — with all 18 cells `false`,
+`grok inspect --debug` marks every `[claude]`-tagged item `[disabled]`, closing the 0.2.99-era gap
+where plugin-delivered skills slipped past `compat.claude.skills=false`. The helpers never relied on
+those cells (they isolate via a clean `GROK_HOME` + synthetic `HOME` regardless), but it matters for
+anyone hardening their real `~/.grok/config.toml` against the raw-grok compat scan.
+
 ---
 
-## 5. What headless-relay does about it (v3.0.0)
+## 5. What headless-relay does about it (v3.0.0+)
 
 Every Grok call goes through one of two small helper functions (`grok_relay` for text, `grok_media`
 for image/video) defined in SKILL.md. v3.0.0 keeps Grok isolated with layered controls, and — unlike
@@ -218,7 +225,52 @@ a key can't be traced onto stderr) and cleanup `trap`s on EXIT / INT / TERM / HU
   tools to read a repo and no repo in the working dir to bundle. `grok_media` swaps that for a
   media-only `--tools image_gen,image_edit,image_to_video,reference_to_video` allow-list plus
   `--disallowed-tools search_tool,use_tool` to strip the always-on MCP meta-tools (binary-observed:
-  `image_gen` still runs). `--disable-web-search` and a best-effort `--sandbox strict` are kept on both.
+  `image_gen` still runs). `--disable-web-search` and a best-effort seatbelt are kept on both — since
+  v3.1.0 the subscription branch ships a `relayauth` profile into the temp `GROK_HOME`
+  (`extends = "strict"` plus `read_write` on ONLY the real auth directory), because the grok 1.0.x
+  seatbelt is kernel-enforced and plain `strict` denies reading `GROK_AUTH_PATH` outside the sandbox;
+  the API-key branch stays on plain `strict`. An unappliable **custom** profile makes grok refuse to
+  start (fail closed, verified on 1.0.3); an unappliable **built-in** profile only warns and runs
+  unenforced, so `strict` on the API-key branch is best-effort. Neither is load-bearing — the isolation
+  rests on `env -i`, the empty `HOME` / temp `GROK_HOME`, the non-git CWD, and the tool restriction.
+
+  **Read this before pointing `GROK_AUTH_PATH` somewhere unusual.** `read_write` entries must be
+  directories (grok rejects a file: *"Expected a directory but got a file"*), so the grant is the auth
+  file's whole parent directory — for the default path that is `~/.grok`, which also holds
+  `config.toml`, `logs/`, `sessions/`, and any `skills/` you keep there. The grant is **read and
+  write**, so a binary that diverged from the audited source could read those logs or poison that
+  `config.toml` / a skill for a **future raw** `grok` run. Two tighter designs were tested and
+  rejected on evidence: (1) `read_only` — grok's OIDC refresh tokens **rotate** and are
+  double-spend-protected, and a failed persist is only logged (`auth: failed to persist refreshed
+  token to disk`), so the new token would be lost while the spent one stayed on disk and the login
+  would die silently a call later; (2) hard-linking `auth.json` into a narrower granted directory —
+  `write_auth_json` persists via **temp+rename** (the source notes it "allocates a new inode per
+  rewrite"), which breaks the link, so refreshes would silently land on a detached copy (and the
+  rename needs directory write anyway). What v3.1.1 does instead is **bound which directory** may be
+  granted: it must demonstrably hold the credential file itself, and it is never `/`, never your `$HOME`
+  or any ancestor of it, never a git repository (worktree **or** bare — a bare repo has no `.git`),
+  resolved to its physical path first (so a symlinked or `../`-laden path cannot widen it), and
+  rejected outright if the path carries a quote, backslash, or newline (checked *before* resolution,
+  because command substitution strips trailing newlines), a control character anywhere in the RESOLVED
+  path (a symlink into a directory whose name embeds an LF resolves with that LF mid-string, which the
+  raw-path check cannot see), or a `*`, `?`, `[`, or a leading/trailing ASCII space or tab,
+  because grok reads a **trailing `/*` or `/**` as the parent directory** (a dir literally named `*`
+  would otherwise widen the grant one level, straight past the `$HOME` bound) and silently skips any
+  other glob entry. Everything the bounds do NOT name is still grantable, so this is a floor, not a
+  policy: `GROK_AUTH_PATH=/tmp/auth.json` is accepted and would hand the shared temp dir to the
+  sandboxed process, and a subdirectory *inside* the granted dir gets the same read/write even if it
+  is itself a repository. Point the credential at a dedicated directory and the question disappears.
+  **Not** a concern (checked): the validated path is frozen into `sandbox.toml` and the kernel enforces
+  that string, so a same-UID process swapping the directory after the checks cannot widen what was
+  granted — and swapping the credential file makes grok's own open resolve outside the grant, which the
+  kernel then denies. (Precisely: the *string* is fixed, so what the kernel enforces cannot be widened;
+  a rename can still change which directory that string names, but a same-UID process could read that
+  directory directly anyway, so nothing is gained. Note also that the whitespace bound covers ASCII
+  space and tab; some other Unicode whitespace would pass it and then be skipped by grok, which fails
+  to authenticate rather than widening anything.) Anything outside those bounds fails
+  closed before grok starts. **Hardening tip:** run `grok login` with
+  `GROK_AUTH_PATH="$HOME/.grok-auth/auth.json"` and keep that directory dedicated to the credential —
+  then the grant covers a directory holding nothing but the token.
 - **Media published atomically, never written in place.** `grok_media` never runs grok in your output
   dir. grok writes media under the temp `GROK_HOME` session dir (`paths.rs` `sessions_cwd_dir` =
   `grok_home()/sessions/…`); the helper then publishes only THIS call's artifacts by copying each into
@@ -330,8 +382,8 @@ all three vendors, telemetry schema, and the lenient `toml::Value` config parse 
 tool call; `image_gen` runs under the media allow-list; the `disable_codebase_upload` string exists) —
 NOT proven to be the same commit as the source. (3) **Fake-runtime-tested**:
 `scripts/test-grok-runtime.sh` exercises the WRAPPER's isolation, lifecycle, and publish against a
-fake `grok` on sh/bash/zsh (no real grok, no network), 60 scenarios × 3 shells. The pass policy: **every
-non-skipped cell must PASS and all 26/26 mutations must be caught**; the only permitted skips are
+fake `grok` on sh/bash/zsh (no real grok, no network), 78 scenarios × 3 shells. The pass policy: **every
+non-skipped cell must PASS and every mutation must be caught (43/43 at the v3.1.1 tag)**; the only permitted skips are
 documented ones — (a) the two normal/nonzero descendant-reaping scenarios (that cleanup is intentionally
 NOT provided on any shell; only signal/timeout reaping, while grok is alive, is guaranteed), and (b) a
 publish-time signal scenario ONLY when it observes the local `.grokpub.*` temp window described below.

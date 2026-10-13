@@ -1,8 +1,8 @@
 ---
 name: headless-relay
-description: Headless handoff guide for running other AI models from inside an agent session (any Agent Skills runtime - Claude Code, Codex, Grok Build, Cursor, OpenClaw, Hermes). Covers GPT (codex exec), GLM (opencode run or zcode --prompt), Grok (grok -p), Gemini (Antigravity agy -p), and Claude (claude -p or a subagent) - inline vs file prompts, parallel multi-model consensus, Party/Council Mode across every safely available built-in and custom lane, JSON output, session resume, image/video generation, provider-terms compliance. Use for "ask codex", "ask GLM", "ask Grok", "ask Gemini", "ask Claude", "second opinion", "consensus", "party mode", "council mode", "ask everyone", "run all available models", "her şeyi dene", "hepsine sor", "compare models", or headless image/video generation.
+description: Headless handoff guide for running other AI models from inside an agent session (any Agent Skills runtime - Claude Code, Codex, Grok Build, Cursor, OpenClaw, Hermes). Covers GPT (codex exec), GLM (opencode run or zcode --prompt), Grok (grok -p), Gemini (Antigravity agy -p), and Claude (claude -p or a subagent) - inline vs file prompts, parallel multi-model consensus, Party/Council Mode across every safely available built-in and custom lane, JSON output, session resume, image/video generation, video understanding (watching a clip), provider-terms compliance. Use for "ask codex", "ask GLM", "ask grok", "ask gemini", "ask Claude", "second opinion", "cross-model review", "consensus", "party mode", "council mode", "ask everyone", "run all available models", "her şeyi dene", "hepsine sor", "compare models", "generate an image", "watch this video", "run headless", "ask another model".
 license: MIT. Complete terms in LICENSE.txt
-metadata: {"version": "3.1.0"}
+metadata: {"version": "3.1.1"}
 ---
 
 # headless-relay
@@ -97,9 +97,11 @@ managed policy is NOT carried (see [SECURITY.md](SECURITY.md)).**
 # file and passes no auth PATH in this branch) + ALL tools denied + a real
 # watchdog timeout. The wrapper's control state (the answer file) lives in a SEPARATE base that grok is
 # never given a path under. Answer -> stdout.  Usage: grok_relay "your question"
-# [GROK_RELAY_TIMEOUT=secs, default 300]
+# [GROK_RELAY_TIMEOUT=secs, default 300; GROK_RELAY_MODEL=verified catalog id]
 grok_relay() (
   { set +eux; } 2>/dev/null                                  # subshell-local: no errexit/nounset/xtrace (xtrace off => no key on stderr)
+  model=${GROK_RELAY_MODEL:-grok-4.6}                         # 4.7 is opt-in after exact account-catalog verification
+  case "$model" in grok-4.5|grok-4.6|grok-4.7) ;; *) echo "grok_relay: unsupported model id" >&2; exit 2 ;; esac
   _kids(){ for __k in $(ps -A -o pid=,ppid= 2>/dev/null | awk -v p="$1" '$2==p{print $1}'); do _kids "$__k"; echo "$__k"; done; }
   _killn(){ while IFS= read -r __q; do [ -n "$__q" ] && kill "-$1" "$__q" 2>/dev/null; done; }
   _tree(){ [ -n "${1:-}" ] || return 0; __L=$({ echo "$1"; _kids "$1"; }); printf '%s\n' "$__L" | _killn TERM; sleep 0.3; printf '%s\n' "$__L" | _killn KILL; }
@@ -111,8 +113,8 @@ grok_relay() (
   key="${XAI_API_KEY:-${GROK_CODE_XAI_API_KEY:-}}"           # non-empty => API-key branch
   if [ -z "$key" ]; then                                     # subscription: grok precedence GROK_AUTH_PATH > $GROK_HOME/auth.json > $HOME/.grok/auth.json
     ap="${GROK_AUTH_PATH:-${GROK_HOME:-$HOME/.grok}/auth.json}"
-    case "$ap" in /*) ;; *) ap="$(pwd)/$ap" ;; esac          # absolutise before any cd
-    [ -r "$ap" ] || { echo "grok_relay: no readable auth at $ap — run 'grok login', or set XAI_API_KEY" >&2; exit 1; }
+    case "$ap" in /*) ;; *) [ "$(pwd)" -ef . ] || { echo "grok_relay: the working directory's name contains a newline — refusing to absolutise a relative auth path against it (command substitution would strip that newline and silently name a SIBLING directory's credential)" >&2; exit 1; }; ap="$(pwd)/$ap" ;; esac          # absolutise before any cd
+    { [ -f "$ap" ] && [ -r "$ap" ]; } || { echo "grok_relay: no readable auth FILE at $ap — run 'grok login', or set XAI_API_KEY" >&2; exit 1; }   # -f, not just -r: a GROK_AUTH_PATH that names a directory (a typo dropping /auth.json) satisfies -r and both identity checks below, and would grant that directory's PARENT
   fi
   to=${GROK_RELAY_TIMEOUT:-300}; case "$to" in ''|*[!0-9]*) to=300 ;; esac; [ "$to" -gt 0 ] || to=300
   base=$(mktemp -d "${TMPDIR:-/tmp}/grok-ctl.XXXXXX") || { echo "grok_relay: mktemp failed" >&2; exit 1; }   # CONTROL (answer file); grok never told this path
@@ -157,15 +159,31 @@ hooks = false
 sessions = false
 ' > "$gkh/config.toml" || { echo "grok_relay: could not write config" >&2; exit 1; }
   [ -s "$gkh/config.toml" ] || { echo "grok_relay: config incomplete" >&2; exit 1; }
+  if [ -z "$key" ]; then                                     # subscription on grok 1.0.x: the seatbelt is KERNEL-enforced, so plain `strict` denies reading $ap outside the sandbox. Grant ONLY the auth DIRECTORY: grok persists a refreshed token with temp+rename (needs directory write), and a rotating refresh token that cannot be persisted silently kills the login — read_only is NOT a safe substitute (see SECURITY.md). An unappliable CUSTOM profile makes grok refuse to start (fail closed, verified on 1.0.3); a built-in profile only warns and runs unenforced, so the API-key branch's plain strict is best-effort.
+    [ "$(printf '%s' "$ap" | wc -l | tr -d ' ')" = 0 ] || { echo "grok_relay: newline in auth path" >&2; exit 1; }   # BEFORE resolving: command substitution strips trailing newlines, so a newline-named dir would otherwise silently resolve to its newline-free sibling
+    apd=$(cd "$(dirname "$ap")" 2>/dev/null && pwd -P) || { echo "grok_relay: auth directory not readable: $(dirname "$ap")" >&2; exit 1; }   # PHYSICAL path: a symlinked or ../-laden auth dir cannot smuggle a broader grant past the bounds below
+    [ "$apd/${ap##*/}" -ef "$ap" ] || { echo "grok_relay: auth dir '$apd' does not hold $ap — refusing to grant a directory that is not the credential's own" >&2; exit 1; }   # IDENTITY, not mere readability: -ef compares inode+device, so a decoy of the same name in a newline-free sibling (reached when the RESOLVED path loses a trailing newline) cannot satisfy it
+    [ "$apd" -ef "$(dirname "$ap")" ] || { echo "grok_relay: resolved auth dir '$apd' is not the directory $ap lives in — refusing (a trailing newline was stripped from the resolved path, so this names a sibling)" >&2; exit 1; }   # DIRECTORY identity: the strongest form of the invariant. -ef accepts hard links and follows symlinks, so a same-inode alias of the credential planted in the newline-free sibling can satisfy the FILE check below — comparing the directories themselves cannot be spoofed that way.
+    __hp=$(cd "$HOME" 2>/dev/null && pwd -P) || __hp="$HOME"
+    [ "$apd" = "/" ] && { echo "grok_relay: refusing to grant / as the auth dir" >&2; exit 1; }   # belt-and-suspenders: the home bound below already rejects / (its %/ pattern becomes /*), and THAT bound is mutation-pinned
+    case "$__hp/" in "${apd%/}"/*) echo "grok_relay: auth dir '$apd' contains your home directory — too broad to grant; point GROK_AUTH_PATH at a dedicated dir (see SECURITY.md)" >&2; exit 1 ;; esac   # rejects $HOME, EVERY ancestor of it (/Users, /home, ...), and / itself (%/ makes the pattern /*)
+    { [ -e "$apd/.git" ] || { [ -d "$apd/objects" ] && [ -d "$apd/refs" ] && [ -e "$apd/HEAD" ]; }; } && { echo "grok_relay: auth dir '$apd' is a git repository (worktree or bare) — refusing to grant it" >&2; exit 1; }
+    case "$apd" in *[[:cntrl:]]*) echo "grok_relay: resolved auth dir holds a control character — refusing (it would land in the TOML unescaped; the newline pre-check above only sees the RAW path, so a symlink into a directory whose NAME contains an LF resolves with that LF mid-string)" >&2; exit 1 ;; esac
+    case "$apd" in *'"'*|*'\'*) echo "grok_relay: TOML-unsafe character in auth dir" >&2; exit 1 ;; esac
+    case "$apd" in *'*'*|*'?'*|*'['*) echo "grok_relay: auth dir '$apd' holds a sandbox metacharacter (* ? [) — grok reads a TRAILING /* or /** as the PARENT directory (so a dir named * would silently widen the grant one level, past the bounds above) and skips any other glob entry; refusing" >&2; exit 1 ;; esac
+    __tb=$(printf '\t'); case "$apd" in ' '*|*' '|"$__tb"*|*"$__tb") echo "grok_relay: auth dir has leading/trailing whitespace — grok skips such an entry, leaving the credential ungranted; refusing" >&2; exit 1 ;; esac
+    printf '[profiles.relayauth]\nextends = "strict"\nread_write = ["%s"]\n' "$apd" > "$gkh/sandbox.toml" || { echo "grok_relay: could not write sandbox profile" >&2; exit 1; }
+    [ -s "$gkh/sandbox.toml" ] || { echo "grok_relay: sandbox profile incomplete" >&2; exit 1; }
+  fi
   if ( set -m ) 2>/dev/null; then set -m 2>/dev/null; fi   # enable monitor mode where allowed so the grok job gets its OWN process group (sh/bash); pgok is set below ONLY after verifying grok is that group's leader   # per-job process groups (sh/bash) so grok's descendants are reapable even after it exits; zsh/dash: no-op (documented limit)
   if [ -n "$key" ]; then                                     # API key: no auth file read; env -i drops GROK_DISABLE_API_KEY_AUTH etc.
     ( cd "$iso" && exec env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$hm" GROK_HOME="$gkh" TMPDIR="$tmp" TERM=dumb \
         GROK_TELEMETRY_ENABLED=false GROK_TELEMETRY_TRACE_UPLOAD=false GROK_EXTERNAL_OTEL=false GROK_WORKSPACE_DATA_COLLECTION_DISABLED=true XAI_API_KEY="$key" \
-        "$grokbin" -p "$1" -m grok-4.5 --disable-web-search --sandbox strict --deny '*' ) > "$base/out" 2>/dev/null &
+        "$grokbin" -p "$1" -m "$model" --disable-web-search --sandbox strict --deny '*' ) > "$base/out" 2>/dev/null &
   else                                                       # subscription: only GROK_AUTH_PATH reaches grok (GROK_AUTH inline etc. dropped by env -i)
     ( cd "$iso" && exec env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$hm" GROK_HOME="$gkh" TMPDIR="$tmp" TERM=dumb \
         GROK_TELEMETRY_ENABLED=false GROK_TELEMETRY_TRACE_UPLOAD=false GROK_EXTERNAL_OTEL=false GROK_WORKSPACE_DATA_COLLECTION_DISABLED=true GROK_AUTH_PATH="$ap" \
-        "$grokbin" -p "$1" -m grok-4.5 --disable-web-search --sandbox strict --deny '*' ) > "$base/out" 2>/dev/null &
+        "$grokbin" -p "$1" -m "$model" --disable-web-search --sandbox relayauth --deny '*' ) > "$base/out" 2>/dev/null &
   fi
   child=$!
   __pg=$(ps -o pgid= -p "$child" 2>/dev/null | tr -d ' '); [ -n "$__pg" ] && [ "$__pg" = "$child" ] && pgok=1   # negative-kill ONLY if grok is VERIFIED to be its own process-group leader; false on dash (job control off) / zsh (set -m rejected) -> pgok stays 0
@@ -222,9 +240,11 @@ lane with video:
 # (signal / timeout, via a ps-walk on all shells, plus a VERIFIED process-group kill on sh/bash). After
 # grok's own normal/nonzero exit the helper does NOT chase a detached descendant (no post-wait negative
 # kill — the pgid could be reused); that cleanup is out of scope and needs an OS sandbox.
-# Usage: grok_media /abs/brief.md /abs/out-dir   [GROK_MEDIA_TIMEOUT=secs, default 600]
+# Usage: grok_media /abs/brief.md /abs/out-dir   [GROK_MEDIA_TIMEOUT=secs, default 600; GROK_RELAY_MODEL=verified catalog id]
 grok_media() (
   { set +eux; } 2>/dev/null
+  model=${GROK_RELAY_MODEL:-grok-4.6}                         # same explicit, catalog-gated opt-in as grok_relay
+  case "$model" in grok-4.5|grok-4.6|grok-4.7) ;; *) echo "grok_media: unsupported model id" >&2; exit 2 ;; esac
   _kids(){ for __k in $(ps -A -o pid=,ppid= 2>/dev/null | awk -v p="$1" '$2==p{print $1}'); do _kids "$__k"; echo "$__k"; done; }
   _killn(){ while IFS= read -r __q; do [ -n "$__q" ] && kill "-$1" "$__q" 2>/dev/null; done; }
   _tree(){ [ -n "${1:-}" ] || return 0; __L=$({ echo "$1"; _kids "$1"; }); printf '%s\n' "$__L" | _killn TERM; sleep 0.3; printf '%s\n' "$__L" | _killn KILL; }
@@ -260,8 +280,8 @@ grok_media() (
   key="${XAI_API_KEY:-${GROK_CODE_XAI_API_KEY:-}}"
   if [ -z "$key" ]; then
     ap="${GROK_AUTH_PATH:-${GROK_HOME:-$HOME/.grok}/auth.json}"
-    case "$ap" in /*) ;; *) ap="$(pwd)/$ap" ;; esac
-    [ -r "$ap" ] || { echo "grok_media: no readable auth at $ap — run 'grok login', or set XAI_API_KEY" >&2; exit 1; }
+    case "$ap" in /*) ;; *) [ "$(pwd)" -ef . ] || { echo "grok_media: the working directory's name contains a newline — refusing to absolutise a relative auth path against it (command substitution would strip that newline and silently name a SIBLING directory's credential)" >&2; exit 1; }; ap="$(pwd)/$ap" ;; esac          # absolutise before any cd
+    { [ -f "$ap" ] && [ -r "$ap" ]; } || { echo "grok_media: no readable auth FILE at $ap — run 'grok login', or set XAI_API_KEY" >&2; exit 1; }   # -f, not just -r: a GROK_AUTH_PATH that names a directory (a typo dropping /auth.json) satisfies -r and both identity checks below, and would grant that directory's PARENT
   fi
   to=${GROK_MEDIA_TIMEOUT:-600}; case "$to" in ''|*[!0-9]*) to=600 ;; esac; [ "$to" -gt 0 ] || to=600
   base=$(mktemp -d "${TMPDIR:-/tmp}/grok-ctl.XXXXXX") || { echo "grok_media: mktemp failed" >&2; exit 1; }    # CONTROL (manifest); grok never told this path
@@ -306,16 +326,32 @@ hooks = false
 sessions = false
 ' > "$gkh/config.toml" || { echo "grok_media: could not write config" >&2; exit 1; }
   [ -s "$gkh/config.toml" ] || { echo "grok_media: config incomplete" >&2; exit 1; }
+  if [ -z "$key" ]; then                                     # subscription on grok 1.0.x: the seatbelt is KERNEL-enforced, so plain `strict` denies reading $ap outside the sandbox. Grant ONLY the auth DIRECTORY: grok persists a refreshed token with temp+rename (needs directory write), and a rotating refresh token that cannot be persisted silently kills the login — read_only is NOT a safe substitute (see SECURITY.md). An unappliable CUSTOM profile makes grok refuse to start (fail closed, verified on 1.0.3); a built-in profile only warns and runs unenforced, so the API-key branch's plain strict is best-effort.
+    [ "$(printf '%s' "$ap" | wc -l | tr -d ' ')" = 0 ] || { echo "grok_media: newline in auth path" >&2; exit 1; }   # BEFORE resolving: command substitution strips trailing newlines, so a newline-named dir would otherwise silently resolve to its newline-free sibling
+    apd=$(cd "$(dirname "$ap")" 2>/dev/null && pwd -P) || { echo "grok_media: auth directory not readable: $(dirname "$ap")" >&2; exit 1; }   # PHYSICAL path: a symlinked or ../-laden auth dir cannot smuggle a broader grant past the bounds below
+    [ "$apd/${ap##*/}" -ef "$ap" ] || { echo "grok_media: auth dir '$apd' does not hold $ap — refusing to grant a directory that is not the credential's own" >&2; exit 1; }   # IDENTITY, not mere readability: -ef compares inode+device, so a decoy of the same name in a newline-free sibling (reached when the RESOLVED path loses a trailing newline) cannot satisfy it
+    [ "$apd" -ef "$(dirname "$ap")" ] || { echo "grok_media: resolved auth dir '$apd' is not the directory $ap lives in — refusing (a trailing newline was stripped from the resolved path, so this names a sibling)" >&2; exit 1; }   # DIRECTORY identity: the strongest form of the invariant. -ef accepts hard links and follows symlinks, so a same-inode alias of the credential planted in the newline-free sibling can satisfy the FILE check below — comparing the directories themselves cannot be spoofed that way.
+    __hp=$(cd "$HOME" 2>/dev/null && pwd -P) || __hp="$HOME"
+    [ "$apd" = "/" ] && { echo "grok_media: refusing to grant / as the auth dir" >&2; exit 1; }   # belt-and-suspenders: the home bound below already rejects / (its %/ pattern becomes /*), and THAT bound is mutation-pinned
+    case "$__hp/" in "${apd%/}"/*) echo "grok_media: auth dir '$apd' contains your home directory — too broad to grant; point GROK_AUTH_PATH at a dedicated dir (see SECURITY.md)" >&2; exit 1 ;; esac   # rejects $HOME, EVERY ancestor of it (/Users, /home, ...), and / itself (%/ makes the pattern /*)
+    { [ -e "$apd/.git" ] || { [ -d "$apd/objects" ] && [ -d "$apd/refs" ] && [ -e "$apd/HEAD" ]; }; } && { echo "grok_media: auth dir '$apd' is a git repository (worktree or bare) — refusing to grant it" >&2; exit 1; }
+    case "$apd" in *[[:cntrl:]]*) echo "grok_media: resolved auth dir holds a control character — refusing (it would land in the TOML unescaped; the newline pre-check above only sees the RAW path, so a symlink into a directory whose NAME contains an LF resolves with that LF mid-string)" >&2; exit 1 ;; esac
+    case "$apd" in *'"'*|*'\'*) echo "grok_media: TOML-unsafe character in auth dir" >&2; exit 1 ;; esac
+    case "$apd" in *'*'*|*'?'*|*'['*) echo "grok_media: auth dir '$apd' holds a sandbox metacharacter (* ? [) — grok reads a TRAILING /* or /** as the PARENT directory (so a dir named * would silently widen the grant one level, past the bounds above) and skips any other glob entry; refusing" >&2; exit 1 ;; esac
+    __tb=$(printf '\t'); case "$apd" in ' '*|*' '|"$__tb"*|*"$__tb") echo "grok_media: auth dir has leading/trailing whitespace — grok skips such an entry, leaving the credential ungranted; refusing" >&2; exit 1 ;; esac
+    printf '[profiles.relayauth]\nextends = "strict"\nread_write = ["%s"]\n' "$apd" > "$gkh/sandbox.toml" || { echo "grok_media: could not write sandbox profile" >&2; exit 1; }
+    [ -s "$gkh/sandbox.toml" ] || { echo "grok_media: sandbox profile incomplete" >&2; exit 1; }
+  fi
   if ( set -m ) 2>/dev/null; then set -m 2>/dev/null; fi   # enable monitor mode where allowed so the grok job gets its OWN process group (sh/bash); pgok is set below ONLY after verifying grok is that group's leader   # per-job process groups? sh/bash: yes (grok becomes a group leader, so its descendants are reapable even after it exits/reparents); zsh/dash: no (documented limit)
   mt="image_gen,image_edit,image_to_video,reference_to_video"
   if [ -n "$key" ]; then
     ( cd "$iso" && exec env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$hm" GROK_HOME="$gkh" TMPDIR="$tmp" TERM=dumb \
         GROK_TELEMETRY_ENABLED=false GROK_TELEMETRY_TRACE_UPLOAD=false GROK_EXTERNAL_OTEL=false GROK_WORKSPACE_DATA_COLLECTION_DISABLED=true XAI_API_KEY="$key" \
-        "$grokbin" -p "$briefdata" -m grok-4.5 --disable-web-search --sandbox strict --tools "$mt" --disallowed-tools search_tool,use_tool ) >/dev/null 2>&1 &
+        "$grokbin" -p "$briefdata" -m "$model" --disable-web-search --sandbox strict --tools "$mt" --disallowed-tools search_tool,use_tool ) >/dev/null 2>&1 &
   else
     ( cd "$iso" && exec env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$hm" GROK_HOME="$gkh" TMPDIR="$tmp" TERM=dumb \
         GROK_TELEMETRY_ENABLED=false GROK_TELEMETRY_TRACE_UPLOAD=false GROK_EXTERNAL_OTEL=false GROK_WORKSPACE_DATA_COLLECTION_DISABLED=true GROK_AUTH_PATH="$ap" \
-        "$grokbin" -p "$briefdata" -m grok-4.5 --disable-web-search --sandbox strict --tools "$mt" --disallowed-tools search_tool,use_tool ) >/dev/null 2>&1 &
+        "$grokbin" -p "$briefdata" -m "$model" --disable-web-search --sandbox relayauth --tools "$mt" --disallowed-tools search_tool,use_tool ) >/dev/null 2>&1 &
   fi
   child=$!
   __pg=$(ps -o pgid= -p "$child" 2>/dev/null | tr -d ' '); [ -n "$__pg" ] && [ "$__pg" = "$child" ] && pgok=1   # negative-kill ONLY if grok is VERIFIED to be its own process-group leader; false on dash (job control off) / zsh (set -m rejected) -> pgok stays 0, so no unverified process-group kill
@@ -474,14 +510,22 @@ substitute a different model to fill the gap.
 
 | Model | Binary check | Auth / plan check |
 |-------|--------------|-------------------|
-| GPT (Codex) | `command -v codex` | fails fast with an auth error when logged out (`codex login`) |
-| GLM via OpenCode | `command -v opencode` | `opencode auth list` shows a Z.AI credential |
-| GLM via ZCode | `command -v zcode` (add a PATH wrapper if only the app is installed) | `~/.zcode/cli/config.json` exists or `ZCODE_API_KEY` is set. `zcode login` is currently broken — see [references/cli-reference.md](references/cli-reference.md) |
-| Grok | `command -v grok` | Run `grok models` (a catalog fetch — no repo bundle, no model turn). Grok is available if the output lists models (`Default model:` / `Available models:`), EVEN IF a "You are not authenticated." line appears above the list — that header just mirrors an expired cached token that the same call silently refreshes before fetching the catalog. Only "not authenticated" with NO model list is a real problem: auth.json missing → logged out; auth.json present → confirm with one bounded real call via `grok_relay`. Walk the availability ladder in [references/cli-reference.md](references/cli-reference.md) |
+| GPT (Codex) | `command -v codex` | fails fast with an auth error when logged out (`codex login`). Pin only an id listed by this account's `codex debug models` JSON catalog (`gpt-6-sol`, `gpt-6-luna`, or `gpt-6-astra` when enrolled); otherwise keep `-c model="gpt-5.6-sol"` if it is listed. Do not run `codex models` — on 0.144 that starts an interactive prompt. |
+| GLM via OpenCode | `command -v opencode` AND `opencode --version` prints a version (an old CLI binary can be killed silently by macOS; the desktop app does not update it — see [references/cli-reference.md](references/cli-reference.md)) | `opencode auth list` shows a Z.AI credential |
+| GLM via ZCode | `command -v zcode` (add a PATH wrapper if only the app is installed) | `~/.zcode/cli/config.json` exists or `ZCODE_API_KEY` is set. `zcode login` is currently broken, and app 3.14.5 needs a small symlink shim before any call works (error `无法定位 CLI ZCode Built-in Provider Config`, "cannot locate the built-in provider config") — see [references/cli-reference.md](references/cli-reference.md) |
+| Grok | `command -v grok` | Run `grok models` (catalog fetch, no model turn). A model list proves the CLI authenticated, even with a stale "not authenticated" header, but it does **not** prove `grok-4.7` access: require an exact `grok-4.7` entry under `Available models:` before setting `GROK_RELAY_MODEL=grok-4.7` for either helper. Otherwise retain the 4.6 default only if the list has `grok-4.6`, or set `GROK_RELAY_MODEL=grok-4.5` if only 4.5 is listed. If none is listed, skip the Grok lane; never guess a pin. With no model list, follow [the auth ladder](references/cli-reference.md). |
 | Gemini via Antigravity | `command -v agy` | `agy models` lists the model menu when logged in; the default model comes from the user's Antigravity config |
-| Claude | in-session already (native subagent); `command -v claude` only for headless | current session auth |
+| Claude | `command -v claude`; `claude --version` | `claude-opus-5-5` requires Claude Code 2.1.280+; 2.1.260 returns HTTP 400. Confirm signed-in status on the intended profile and the actual `modelUsage` id after a bounded run. Keep the compliance gate below. |
 
 Rules:
+- Example model ids in this skill are copy-paste pins, not a live menu. On this machine, run
+  `sh scripts/print-model-catalog.sh` (catalog-only: `codex debug models`, `agy models`,
+  `grok models`). Do not run `codex models` — on 0.144 that starts a session.
+- `grok_relay` and `grok_media` default to `grok-4.6` for existing accounts. Set
+  `GROK_RELAY_MODEL=grok-4.7` only after this login's `Available models:` block lists that
+  exact id. If it lists 4.5 but not 4.6/4.7, use `GROK_RELAY_MODEL=grok-4.5`.
+  An unsupported id fails before launching Grok; model presence is checked by the operator
+  against the authenticated catalog, not inferred from the published launch date.
 - Missing binary or failed auth means that model is unavailable. Report it plainly ("Grok CLI not
   installed / not logged in — skipping") and continue with the models that ARE available.
 - If the user asked for ONLY an unavailable model, stop and ask how to proceed (install it, or
@@ -562,7 +606,7 @@ rules; see the Grok section). It is still a cloud model — never present it as 
 codex exec "your question here"
 
 # GLM via OpenCode
-echo "your question here" | opencode run -m "zai-coding-plan/glm-5.2" --variant max
+echo "your question here" | opencode run -m "zai-coding-plan/glm-5.3" --variant max
 
 # GLM via the ZCode app's bundled CLI (one-time setup: references/cli-reference.md)
 zcode --prompt "your question here"
@@ -574,7 +618,7 @@ zcode --prompt "your question here"
 grok_relay "your question here"
 
 # Gemini via Antigravity — model name is the display string from `agy models`
-agy -p "your question here" --model "Gemini 3.1 Pro (High)"
+agy -p "your question here" --model "Gemini 3.8 Flash (High)"
 
 # Claude (headless subprocess)
 claude -p "your question here" --model fable
@@ -604,7 +648,7 @@ Per-CLI stdin behavior:
 codex exec < /tmp/handoff.md
 
 # OpenCode: no stdin-redirect; pipe it
-cat /tmp/handoff.md | opencode run -m "zai-coding-plan/glm-5.2" --variant max
+cat /tmp/handoff.md | opencode run -m "zai-coding-plan/glm-5.3" --variant max
 
 # ZCode: no stdin mode — substitute the file into the arg (a quoted "$()" passes the
 # bytes verbatim; the file's backticks/$ are NOT re-interpreted by the shell)
@@ -639,7 +683,10 @@ network"), and the helper keeps your other tools' config AND grok's own global r
 When the user says `party mode`, `council mode`, `ask everyone`, `run all available models`,
 `her şeyi dene`, or `hepsine sor`, preflight **every built-in lane plus every valid custom target**,
 then invoke every lane that passes the existing availability, same-provider, provider-terms, and
-data-egress gates. Freeze one prompt file and give every admitted lane those same bytes. Do not
+data-egress gates. Same-provider lanes are admitted via native subagent transport, with their own
+independent output/error receipt; if the harness lacks that transport, record unavailable with a
+reason, never fall back to the same-provider CLI. Normalize and freeze one canonical user brief
+as documented in the reference; this does not promise identical total model context. Do not
 install tools, log in, rotate auth, or silently substitute models to make the roster look complete.
 
 Compatible cloud/CLI lanes may run in parallel. Antigravity stays sequential because of its
@@ -648,20 +695,22 @@ explicitly permit concurrency. Capture one artifact and status receipt per lane.
 orchestrator—not one council member—synthesizes shared findings, unique findings, contradictions,
 and skipped-lane reasons. Preserve dissent: majority vote is not evidence.
 
-The full roster states, private run-directory contract, scheduling rules, synthesis format, degraded
-mode behavior, and GREEN gate are in [references/party-mode.md](references/party-mode.md).
+The full roster states, private run-directory contract, scheduling rules, synthesis format, separate
+bookkeeping/useful-outcome rules, and GREEN gate are in [references/party-mode.md](references/party-mode.md).
+This is a skill/protocol, not an executable council engine. Complete error accounting is not useful
+success, and missing native receipts cannot be GREEN.
 
 For an ordinary hand-picked 2+ model consensus, use the same frozen-prompt pattern with only the
 requested lanes:
 
 ```bash
 codex exec < /tmp/handoff.md > /tmp/ans-gpt.md 2>/dev/null &
-cat /tmp/handoff.md | opencode run -m "zai-coding-plan/glm-5.2" --variant max > /tmp/ans-glm.md 2>/dev/null &
+cat /tmp/handoff.md | opencode run -m "zai-coding-plan/glm-5.3" --variant max > /tmp/ans-glm.md 2>/dev/null &
 # Grok lane — grok_relay runs with empty HOME + clean temp GROK_HOME (no config leak) + tools denied:
 grok_relay "$(cat /tmp/handoff.md)" > /tmp/ans-grok.md 2>/dev/null &
 wait
 # Gemini runs SEQUENTIALLY, AFTER the burst — agy 1.1.0 wedges inside a 3+ CLI burst (see below):
-agy -p "$(cat /tmp/handoff.md)" --model "Gemini 3.1 Pro (High)" > /tmp/ans-gemini.md 2>/dev/null
+agy -p "$(cat /tmp/handoff.md)" --model "Gemini 3.8 Flash (High)" > /tmp/ans-gemini.md 2>/dev/null
 ```
 
 On a machine with ZCode instead of OpenCode, swap the GLM lane:
@@ -763,6 +812,9 @@ directory:
 #      instead of calling the tool. `max` and below work fine (max ran in ~55s).
 #   2. Redirect stdin from /dev/null — a positional-arg prompt can otherwise block on
 #      "Reading additional input from stdin". macOS has no `timeout`; use perl's alarm.
+# Pin `gpt-5.6-sol` here: this image recipe was smoke-tested on that id.
+# `gpt-6-sol`, `gpt-6-luna` and `gpt-6-astra` are newer text/agent models,
+# not proof that this image_gen recipe works on them. Test that separately.
 cd /path/to/output-dir
 perl -e 'alarm shift; exec @ARGV' 480 \
   codex exec --sandbox workspace-write -c model="gpt-5.6-sol" \
@@ -771,7 +823,7 @@ perl -e 'alarm shift; exec @ARGV' 480 \
 # Gemini (agy): native generate_image tool, works headless. Run it SOLO (the agy parallel-burst
 # hang applies to media too); the Google-account login covers it — no API key, no OpenRouter.
 cd /path/to/output-dir
-agy -p "$(cat /tmp/img-brief.md)" --model "Gemini 3.1 Pro (High)" --add-dir "$PWD" </dev/null
+agy -p "$(cat /tmp/img-brief.md)" --model "Gemini 3.8 Flash (High)" --add-dir "$PWD" </dev/null
 ```
 
 Grok media (image or video) goes through the `grok_media` helper (define it once, see the Grok
@@ -800,6 +852,42 @@ Per-target support (detail in [references/cli-reference.md](references/cli-refer
 | Gemini (agy) | YES (image only) — native `generate_image`, no API key / no OpenRouter (Google login covers it), ~34s, writes to cwd (verified: orange-triangle JPG). Run SOLO — the agy parallel-burst hang applies. No native video tool. No whole-repo bundle (still a cloud image API) |
 | Grok | YES — `image_gen` / `image_edit` / `image_to_video` / `reference_to_video`, Imagine backend; the ONLY lane with video. Run via **`grok_media`** (hermetic `env -i` + empty HOME + clean temp GROK_HOME; allow-lists ONLY the 4 media tools with `--tools` — `--deny '*'` would block image_gen — binary-observed on 0.2.101). grok runs in an empty non-git dir; image_gen writes under the temp GROK_HOME, and the helper publishes the artifact into your output dir by copying it to a temp there and atomically hard-linking it to a free name (no-clobber, no-follow; a no-hardlink fs and newline-in-name both **fail closed**; rolls back only this call's own files on failure and never removes the output dir). The answer/manifest live in a separate control base grok is never given a path to |
 | GLM / Claude | No headless image generation in these CLIs |
+
+### Scenario I — watch a video (video understanding)
+
+Asking a model to *watch* a local clip (describe it, transcribe it, pick a usable window, flag
+brand risks) is not the same as generating one. Live-tested 2026-10-09:
+
+| Target | Can it watch a local clip headlessly? |
+|--------|---------------------------------------|
+| Gemini (agy, `"Gemini 3.8 Flash (High)"`) | **YES** — ~1 frame/s plus an automatic speech transcript (no raw audio). The lane to use for talks, interviews, jokes, quotes |
+| GLM-5.3-Flash | **Frames only, no speech**, and only through the Coding Plan API's `video_url` part. `opencode` lists the model as video-capable but its provider rejects video (and `run` exits 0 with empty output); `zcode --attach` forwards an empty placeholder |
+| Grok 4.7 | **NO** — `read_file` skips video as binary and the headless CLI forwards only image blocks |
+| GPT (Codex), Claude | Not tested |
+
+```bash
+# Gemini: clip alone in a fresh private dir (re-encoded to ~540p), run solo, bounded
+watch_clip() (   # subshell: its own EXIT trap, so each clip's workspace is removed, also in a loop
+  W=$(mktemp -d "${TMPDIR:-/tmp}/watch.XXXXXX") && W=$(cd "$W" && pwd -P) || exit 1   # absolute, even if TMPDIR is relative
+  trap 'rm -rf "$W"' EXIT
+  ffmpeg -nostdin -v error -i "$1" -vf scale=-2:540 \
+    -c:v libx264 -crf 30 -c:a aac -b:a 96k "$W/clip.mp4" || exit 1
+  P=$(cat "$2") || exit 1   # read the prompt before cd; keep it out of the workspace
+  # macOS has no `timeout`; perl's alarm bounds the run (agy can hang)
+  cd "$W" && perl -e 'alarm shift; exec @ARGV' 300 \
+    agy -p "$P" --model "Gemini 3.8 Flash (High)" --add-dir "$W" --mode plan --sandbox </dev/null
+  rc=$?; exit "$rc"
+)
+watch_clip input.mp4 watch-prompt.md
+# many clips: while IFS= read -r f <&3; do watch_clip "$f" watch-prompt.md; done 3< clips.txt
+```
+
+The prompt should say: read only `clip.mp4`, no web search, no new files, timestamps, verbatim
+speech with `[unclear]` for unclear words, say plainly if audio is unavailable. Zoom into the frame
+yourself before acting on a model's brand-safety flag (a sponsor logo was misread as an offensive
+word in testing), and take speaker names from the on-screen lower third, not from the model (two
+runs on one clip named two different people). GLM API recipe, the CLI failure details and the Grok source evidence:
+[references/cli-reference.md](references/cli-reference.md), "Video understanding".
 
 ## Claude target: subprocess vs in-session subagent
 
@@ -837,7 +925,8 @@ while a same-provider second opinion should stay in-session as a subagent.
 | File | Contents |
 |------|----------|
 | [SECURITY.md](SECURITY.md) | **Grok data egress**: the historical whole-repo upload, xAI's 2026-07-15 open-sourcing + the source audit, the residual concerns (global-rule leak, unverifiable binary), and per-user hardening / migration for people who already ran Grok |
-| [references/cli-reference.md](references/cli-reference.md) | Full per-CLI flag tables, model ids, ZCode setup recipes, output-format shapes, session resume, sandbox/network detail, the Grok data-egress detail, troubleshooting |
+| [references/cli-reference.md](references/cli-reference.md) | Full per-CLI flag tables, model ids, ZCode setup recipes (incl. the app 3.14.5 shim), output-format shapes, session resume, sandbox/network detail, the Grok data-egress detail, video understanding (which lanes can watch a clip), troubleshooting |
+| [scripts/print-model-catalog.sh](scripts/print-model-catalog.sh) | Machine-local catalog snapshot (`codex debug models` / `agy models` / `grok models`). Not a published menu. |
 | [references/anthropic-terms.md](references/anthropic-terms.md) | Compliance detail: Anthropic subscription-routing block, Commercial Terms D.4, Fable 5 safeguards, enforcement history, plus the OpenAI / xAI / Z.ai / Google provider-terms matrix, with citations |
 | [references/reprompter-relay.md](references/reprompter-relay.md) | Pairing recipe: run a prompt-engineering skill (e.g. RePrompter) before relaying a nontrivial task; documents the RePrompter handoff contract |
 | [references/custom-targets.md](references/custom-targets.md) | User-connected targets: `~/.agents/relay-targets.json` registry for local models (Ollama, LM Studio, MLX) and other one-shot CLIs — field contract, preflight, security rules |
@@ -857,11 +946,15 @@ while a same-provider second opinion should stay in-session as a subagent.
 | Grok `-p` prints nothing for 2+ minutes (stderr may show `worker quit with fatal: Transport channel closed, when Auth(AuthorizationRequired)`, or nothing at all) | The run hangs instead of exiting. Kill it; if the fatal auth line is present run `grok login` and retry once; if it hangs again the relay/service side is down — skip Grok and report it. Always wrap unattended grok calls in a timeout |
 | Grok cites unrelated tweets / web pages | You're not going through `grok_relay` — its `--deny '*'` blocks the web-search tool. Route the call through the helper |
 | Grok says a tool was "blocked by policy" | Expected under `grok_relay`'s `--deny '*'` — a text relay needs no tools, the text answer still arrives. For media use `grok_media` (allow-lists only the 4 media tools via `--tools`, so image_gen still runs) |
+| Grok exits 1 instantly, stderr `Not signed in` though `grok login` is fine (subscription auth) | grok 1.0.x's seatbelt is kernel-enforced: plain `--sandbox strict` denies reading `GROK_AUTH_PATH` outside the sandbox | Already handled since v3.1.0: the helpers write `$GROK_HOME/sandbox.toml` (`relayauth` = strict + read_write on only the auth dir) and pass `--sandbox relayauth`. Seeing this means a pre-v3.1.0 helper on grok 1.0.x — update the skill |
 | Grok's answer references your `~/.claude` rules / `AGENTS.md` / a convention you didn't send | The isolation was skipped (raw `grok` call). `~/.claude` / `~/.cursor` rules load from `$HOME` (compat scan); `~/.grok/AGENTS.md` loads from `$GROK_HOME` (grok's own scan). Always call through `grok_relay` / `grok_media` — they run under an empty `HOME` AND a clean temp `GROK_HOME`, closing both |
-| Grok: `Couldn't set model 'grok-build': … "unknown model id"` | `grok-build` was retired from the CLI when grok-4.5 launched (July 2026) — use `-m grok-4.5` |
+| Grok: `Couldn't set model 'grok-build': … "unknown model id"` | `grok-build` was retired from the CLI when grok-4.5 launched (July 2026) — use a current id listed by this account's `grok models`; `-m grok-4.7` is valid only if it appears there |
 | zcode: `Model config is missing. Create ~/.zcode/cli/config.json …` | One-time setup — follow the ZCode recipes in [references/cli-reference.md](references/cli-reference.md) |
 | `zcode login`: `OAuth response is not valid JSON` | Known open bug — skip login entirely; use the config-file or env-var recipe instead |
-| OpenCode `-f` file attach errors | Pipe via stdin instead (`cat file \| opencode run …`) |
+| OpenCode `-f` file attach errors (`Cannot read binary file`) | Without `--attach`, `run -f` sends every file as text. Pipe text prompts on stdin (`cat file \| opencode run …`); binary attachments need `opencode serve` + `run --attach` |
+| `opencode --version` / `run` prints nothing, exit 137 | Old CLI binary killed by macOS (invalid signature); the desktop app does not update the CLI — reinstall it from the official release (see [references/cli-reference.md](references/cli-reference.md)) |
+| zcode: `无法定位 CLI ZCode Built-in Provider Config` | ZCode app 3.14.5 packaging bug — add the symlink shim wrapper from [references/cli-reference.md](references/cli-reference.md) |
+| A model "watched" a video but describes nothing / says no frames arrived | That lane cannot take video (Grok, GLM through opencode/zcode) — use Gemini via agy, or GLM via the Coding Plan API (frames only); see Scenario I |
 | agy reads/writes files in `~/.gemini/antigravity-cli/scratch` instead of your repo | Antigravity's default working dir is its own scratch workspace — pass `--add-dir /path/to/repo` (it becomes the working directory) |
 | agy: `flag needs an argument: -print` | No stdin pipe — use `agy -p "$(cat /tmp/handoff.md)"` |
 | agy `-p` never returns when launched inside a parallel multi-CLI burst | Known agy 1.1.0 timing bug (solo/pairwise runs are reliable) — run the Gemini lane sequentially around the burst, and always cap it with a timeout |

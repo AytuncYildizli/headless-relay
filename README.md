@@ -3,7 +3,8 @@
 headless-relay is an [Agent Skill](https://agentskills.io) that lets your coding agent use
 the other AI models installed on your machine, without you leaving the session. You say
 "ask Codex what it thinks of this function", "get a second opinion on this bug from GLM and
-Grok", or "have Gemini generate an image for this post". Your agent quietly runs the right
+Grok", "have Gemini generate an image for this post", or "have Gemini watch this clip and
+transcribe it". Your agent quietly runs the right
 tool in the background, reads the answer, and reports back to you. No new accounts, no API
 juggling: it drives the AI tools you already have, with the logins you already use.
 
@@ -33,7 +34,12 @@ is a single `git clone`; everything else on this page is detail for when you nee
 > secrets and grok's own endpoint / auth-provider-command / log / compat overrides) with an empty
 > synthetic `HOME` AND a clean temporary `GROK_HOME` (your real login reached out-of-band via
 > `GROK_AUTH_PATH`, or `XAI_API_KEY`), in an empty non-git directory (verified outside any git tree),
-> with its tool use locked down and a real watchdog timeout. Scope is personal / consumer auth —
+> with its tool use locked down and a real watchdog timeout. One thing to know if you use a
+> subscription login: grok 1.0.x's sandbox is kernel-enforced and would block grok from reading your
+> `auth.json`, so the helper ships a seatbelt profile granting read/write on **the directory holding that
+> credential, and nothing else** — bounded so it can never be `/`, your home directory, a git repository,
+> or anything that is not the credential's own directory. Point `GROK_AUTH_PATH` at a dedicated directory
+> and that grant covers nothing but the token. Scope is personal / consumer auth —
 > team/enterprise managed-policy parity is unverified. None of this makes Grok local
 > — it is still a cloud model; the prompt and Grok's reasoning go to xAI. For the full history, the
 > audit, and what to do if you already used Grok Build in a real repo, read **[SECURITY.md](SECURITY.md)**.
@@ -44,11 +50,15 @@ is a single `git clone`; everything else on this page is detail for when you nee
   Grok, Gemini, or Claude
 - **Consensus**: send the same prompt to several models in parallel and compare answers
 - **Party / Council Mode**: explicitly ask every safely available built-in and custom lane the
-  same frozen brief, preserve dissent, and synthesize only after recording unavailable or blocked lanes
+  same canonical user brief, including independent native subagents for same-provider lanes;
+  preserve dissent and record receipts/skips. A skill/protocol, not an executable council engine;
+  complete bookkeeping is separate from useful success. Contributed by [@AytuncYildizli](https://github.com/AytuncYildizli).
 - **Image / video generation**: headless, through Codex, Gemini, or Grok (Grok under a hermetic
   `env -i` + empty HOME + clean temp GROK_HOME, only the four media tools allowed, media published
   atomically); Grok is
   the only lane that also does video. The skill documents each CLI's quirks
+- **Video understanding**: which lane can actually *watch* a local clip (Gemini via agy: frames plus
+  a speech transcript; GLM-5.3-Flash: frames only, via the Coding Plan API; Grok: no), with recipes
 - **Scripting**: JSON output parsing and session resume for multi-turn work
 - **Safety rails**: a preflight gate (installed + logged in?), a provider-terms compliance gate
   for non-native harnesses, and a **hardened, tool-restricted helper for Grok (hermetic `env -i` + empty
@@ -72,11 +82,15 @@ lives in `references/reprompter-relay.md`.
 | `references/cli-reference.md` | Per-CLI flag tables, ZCode setup recipes, output shapes, troubleshooting |
 | `references/anthropic-terms.md` | Provider-terms compliance detail with citations |
 | `references/custom-targets.md` | Connect your own targets (local models via Ollama, LM Studio/MLX, any one-shot CLI) through `~/.agents/relay-targets.json` |
-| `references/party-mode.md` | Party/Council workflow: all-lane preflight, frozen brief, resource-aware scheduling, artifact manifest, dissent-preserving synthesis, GREEN gate |
+| `references/party-mode.md` | Party/Council protocol: native/CLI roster, canonical user brief, private receipts, scheduling guidance, dissent, separate bookkeeping and useful outcomes |
 | `references/reprompter-relay.md` | Pairing recipe for [RePrompter](https://github.com/AytuncYildizli/reprompter): structure the prompt first, then relay it |
 | `scripts/regression-grok-safety.sh` | Static text tripwire: fails if the Grok isolation safeguard or its security anchors regress |
-| `scripts/regression-party-mode.sh` | Static contract test for Party/Council triggers, all-lane roster, no auth churn/substitution, scheduling guards, dissent, and receipts |
+| `scripts/regression-party-mode.sh` | Shell entrypoint for the Party documentation tripwire (Python 3 stdlib); no model calls or runtime council guarantees |
+| `scripts/test-party-contract.py` | Anchored visible-clause checks, negative mutations (native/receipt/timeout/privacy/private directory), and explicitly test-only record-rule fixtures; not a provider executor |
 | `scripts/test-grok-runtime.sh` | Runtime counterpart to the tripwire: extracts the shipped `grok_relay` / `grok_media` from `SKILL.md` and exercises the isolation, process-lifecycle, and fail-closed publish matrix under sh/bash/zsh against a fake `grok` (real grok / network never touched), with mutation red-green checks |
+| `scripts/print-model-catalog.sh` | Machine-local catalog: asks installed CLIs which model ids they serve *today*. Not a published menu. |
+| `scripts/catalog_watchdog.py` | Process-group watchdog used by the catalog (timeout / INT / TERM / HUP). After a normal CLI exit it does not `killpg` — that pgid could already be reused. Secrets stay out of argv. |
+| `scripts/regression-model-pins.sh` | Static tripwire: fails if docs teach `codex models` as a catalog (that starts a session on 0.144) |
 | `LICENSE.txt` | MIT license |
 
 ## Install
@@ -106,8 +120,10 @@ git clone https://github.com/dorukardahan/headless-relay.git ~/.claude/skills/he
 At least one target-model CLI installed and authenticated:
 
 - `codex` (OpenAI Codex CLI) with a ChatGPT plan or API key
-- `opencode` with a Z.ai Coding Plan credential, and/or the ZCode desktop app (its bundled
-  `zcode` command works headlessly after a one-time setup, see `references/cli-reference.md`)
+- `opencode` with a Z.ai Coding Plan credential (the headless CLI in `~/.opencode/bin` is
+  updated separately from the OpenCode desktop app), and/or the ZCode desktop app (its bundled
+  `zcode` command works headlessly after a one-time setup; app 3.14.5 also needs a small
+  symlink shim, see `references/cli-reference.md`)
 - `grok` (xAI Grok Build) with a SuperGrok login (or `XAI_API_KEY`). Note: the skill runs Grok
   under a hermetic `env -i` + empty `HOME` + a clean temp `GROK_HOME` with its tool use locked down — belt-and-suspenders now
   that xAI has open-sourced Grok Build and a source audit found the old whole-repo upload path gone.
@@ -116,9 +132,25 @@ At least one target-model CLI installed and authenticated:
   Install: `curl -fsSL https://antigravity.google/cli/install.sh | bash`
 - `claude` (Claude Code), only usable as a TARGET when the orchestrator is first-party
   Claude Code; see the compliance gate in `SKILL.md`
+- Optional: `ffmpeg`, to re-encode clips before a video-understanding run
 
 The skill degrades gracefully: unavailable models are reported and skipped, never silently
 substituted.
+
+## Current models on this machine
+
+Example ids in SKILL.md / `references/cli-reference.md` are copy-paste pins, not a live
+menu. They go stale. To see what *this* login currently serves:
+
+```bash
+sh scripts/print-model-catalog.sh
+```
+
+That script reads catalogs only (`codex debug models`, `agy models`, `grok models`). It does
+not start a model turn. Do **not** run `codex models` — on the 0.144 series that starts an
+interactive session. Grok helpers keep the previously supported 4.6 default; set
+`GROK_RELAY_MODEL=grok-4.7` only if this login's `Available models:` block lists that exact id.
+If neither 4.7 nor 4.6 is listed, choose an explicitly listed 4.5 or skip Grok.
 
 ## Compliance note
 
@@ -136,5 +168,33 @@ on a merely-expired cached token while still listing models in the same output; 
 wire-test drove the v2.0.0 Grok isolation policy, see [SECURITY.md](SECURITY.md)), then
 re-assessed again 2026-07-15 after xAI open-sourced Grok Build — a source audit of the released
 code (commit `c68e39f`) found the whole-repo bundle path gone, see [SECURITY.md](SECURITY.md);
-the Gemini lane was verified 2026-07-08 on Antigravity agy 1.1.0. CLIs drift fast, so re-verify
+the Gemini lane was verified 2026-07-08 on Antigravity agy 1.1.0. A 2026-08-14 refresh: on grok 1.0.3 the
+helper flags were confirmed present and one live subscription `grok_relay` call was smoke-verified
+(`grok_media`, the API-key branch, and refresh persistence were not live-exercised) — grok-4.6 became
+the CLI default 2026-08-12; helpers can pin `grok-4.7` (Grok 4.7, 2026-09-21) only after exact login-catalog verification; the GLM lane re-verified on
+GLM-5.3 (`zai-coding-plan/glm-5.3`, launched that day, smoke-verified via opencode); and the Claude lane verified headless with Opus 5
+(`claude -p --model claude-opus-5`). v3.1.1 then bounded the seatbelt grant to the credential's own
+directory, after seven review rounds (Codex, GPT 5.6 Sol, GLM 5.3) whose findings were each reproduced
+locally before being fixed. A 2026-09-21 docs refresh pins current example models:
+`gpt-6-astra` (Codex CLI id; fall back to `gpt-5.6-sol` if `codex debug models` does not list it — do not run `codex models`, that starts a session),
+`zai-coding-plan/glm-5.3` / `zai/glm-5.3` (ZCode recipes no longer default to GLM-5.2),
+`grok-4.7` (catalog-gated Grok helper opt-in; launched 2026-09-21),
+and `Gemini 3.8 Flash (High)` (live `agy models` on agy 1.1.1). CLIs drift fast, so re-verify
 flags when something errors.
+
+2026-09-24 model update: OpenAI's `gpt-6-sol` and `gpt-6-luna` join `gpt-6-astra` as
+catalog-gated Codex choices. Check `codex debug models` on **your own account** before using
+either id; the runnable examples keep `gpt-5.6-sol` for machines without a verified
+new-generation CLI catalog. Anthropic's `claude-opus-5-5` (released 2026-09-22) requires
+Claude Code **2.1.280+**. An installed 2.1.260 rejects it with HTTP 400, so do not assume
+`--model` means the requested model actually ran: verify `modelUsage` in the CLI's JSON result.
+Neither the local Claude Code installation nor subscription auth is changed by this docs update.
+
+2026-10-09 update: a live test of video understanding on the same phone clips. Gemini 3.8 Flash
+through `agy` watched them (about one frame per second plus a speech transcript); GLM-5.3-Flash
+saw frames but no speech, and only through the Coding Plan API's `video_url` part, because
+`opencode` 1.18.35 (its provider rejects video parts, and `run` exits 0 with empty output) and
+`zcode` 0.16.9 (`--attach` forwards an empty placeholder) cannot pass the clip; Grok 4.7 on grok
+1.0.50 cannot read video at all. Two CLI fixes were recorded: the OpenCode desktop app does not
+update the headless CLI (an old CLI was killed at launch by macOS, which looked like a hang), and
+ZCode app 3.14.5 needs a small symlink shim before its bundled CLI finds its provider config.
