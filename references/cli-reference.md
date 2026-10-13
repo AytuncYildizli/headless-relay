@@ -936,7 +936,7 @@ silently or call the print-mode probe an authenticated subscription success.
 
 | Flag | Meaning |
 |------|---------|
-| `--model <model>` | Alias (`fable`, `opus`, `sonnet`) or full name (`claude-fable-5-1`). |
+| `--model <model>` | Alias (`fable`, `opus`, `sonnet`) or full name (`claude-fable-5-1`); preserve any supported variant suffix verbatim. Availability is account/version-dependent. |
 | `--output-format <fmt>` | `text` (default), `json` (single result), `stream-json` (NDJSON). |
 | `--input-format <fmt>` | `text` (default), `stream-json`. |
 | `--effort <level>` | `low\|medium\|high\|xhigh\|max`. |
@@ -953,6 +953,16 @@ silently or call the print-mode probe an authenticated subscription success.
 `stream-json` requires `--verbose`; token-level deltas also need `--include-partial-messages`.
 Session id lookup for `--resume` is scoped to the current directory and its git worktrees.
 
+Define `claude_relay` from `SKILL.md` before the generic commands below. With an unset or empty
+`HEADLESS_RELAY_CLAUDE_MODEL`, it does not inject `--model` or parse settings: native Claude owns
+effective settings/env/profile/resume selection. A non-empty relay override is passed verbatim as
+one argument. Never strip a printable `[1m]` suffix. It is part of a model variant; an ANSI
+escape contains an actual ESC control byte. An alias may select a different variant; this is not
+a claim that every alias always collapses a full id. See the
+[model configuration docs](https://code.claude.com/docs/en/model-config) and
+[settings docs](https://code.claude.com/docs/en/settings). The explicit `claude-opus-5-5`
+capability probe above intentionally pins a model and remains separate from generic defaults.
+
 In-session alternative (usually preferred for a single same-provider opinion): the harness's
 native subagent — no subprocess, result returns straight to the orchestrator.
 
@@ -967,7 +977,7 @@ Claude `--output-format json` returns one object:
 ```
 
 ```bash
-result=$(claude -p "task" --model fable --output-format json)
+result=$(claude_relay -p "task" --output-format json)
 echo "$result" | jq -r '.result'          # answer text
 echo "$result" | jq -r '.session_id'       # for --resume
 echo "$result" | jq -r '.total_cost_usd'   # spend
@@ -977,7 +987,7 @@ Claude `stream-json`: one JSON object per line. First line is a `system` event, 
 (session id, model, tools, MCP servers). Tee the raw stream before parsing:
 
 ```bash
-claude -p "refactor the config loader" --model fable \
+claude_relay -p "refactor the config loader" \
   --output-format stream-json --verbose \
   | tee /tmp/run.jsonl \
   | jq -r 'select(.type=="result") | .result'
