@@ -42,7 +42,7 @@ class KimiRuntime(unittest.TestCase):
         # even when the host has no /usr/bin/python3.
         (self.bin / 'python3').symlink_to(sys.executable)
         fake = self.bin / 'kimi'
-        fake.write_text(FAKE.replace('#!/usr/bin/env python3', '#!' + sys.executable, 1), encoding='utf-8')
+        fake.write_text(FAKE, encoding='utf-8')
         fake.chmod(0o700)
         self.home = self.base / 'home'
         self.home.mkdir()
@@ -130,7 +130,7 @@ class KimiRuntime(unittest.TestCase):
     def lifecycle_fixture(self):
         # Synchronize leader exit with a ready descendant and cleanup with its TERM.
         fake = self.bin / 'kimi'
-        fake.write_text('#!' + sys.executable + '''
+        fake.write_text('''#!/usr/bin/env python3
 import os, pathlib, subprocess, sys, time
 child = """import os,pathlib,signal,time
 ready=pathlib.Path(os.environ['KIMI_TEST_READY'])
@@ -272,6 +272,18 @@ kimi_relay_file() { printf 'partial answer'; return "$KIMI_TEST_RC"; }
         self.assertEqual(result.returncode, 0, result.stderr)
         row = json.loads(self.record.read_text())
         self.assertEqual(row['args'][row['args'].index('-p') + 1], '--file')
+
+    def test_active_python_path_with_spaces(self):
+        directory = self.base / 'python with spaces'
+        directory.mkdir()
+        interpreter = directory / 'python3'
+        interpreter.symlink_to(sys.executable)
+        result = subprocess.run([str(interpreter), str(Path(__file__).resolve()),
+                                 'KimiRuntime.test_exact_argv_empty_absolute_skills_and_cleanup',
+                                 'KimiRuntime.test_inherited_ignored_sigchld_preserves_group_ownership',
+                                 'KimiRuntime.test_cleanup_phase_signal_is_not_success'],
+                                env=self.env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_bad_input_never_runs_cli(self):
         for args, extra in (([], {}), (['p', 'm', 'bad'], {}), (['p'], {'HEADLESS_RELAY_KIMI_TIMEOUT_SECONDS': '0'}),
