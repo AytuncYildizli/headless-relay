@@ -4,7 +4,7 @@
 #
 # The Kimi lane must use Moonshot's native `kimi` CLI and its own OAuth store. OpenCode remains
 # the independent GLM transport and every documented OpenCode GLM invocation stays pinned to
-# zai-coding-plan/glm-5.2. Users may override Kimi's model alias without changing the GLM model.
+# an explicit zai-coding-plan/glm-* selector. Users may override Kimi's model alias without changing the GLM model.
 
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -32,17 +32,25 @@ need "SKILL.md"                    'KIMI_MODEL="${HEADLESS_RELAY_KIMI_MODEL:-kim
 need "SKILL.md"                    'kimi_relay() ('
 need "SKILL.md"                    'kimi_relay "your question here" "kimi-code/k3"'
 need "SKILL.md"                    'For a generic "ask Kimi" request with no model named, use the configured override:'
-need "SKILL.md"                    "perl -e 'alarm shift; exec @ARGV' \"\$limit\" kimi --skills-dir \"\$skills\""
+
 need "SKILL.md"                    'Never invoke `kimi_relay` from cron, a scheduler, or an unattended batch.'
 need "SKILL.md"                    "never reads, copies, moves, or rewrites Kimi's OAuth files"
 need "SKILL.md"                    '`$KIMI_CODE_HOME/AGENTS.md` and'
-need "SKILL.md"                    '`~/.agents/AGENTS.md` from the user'
-need "SKILL.md"                    'opencode run -m "zai-coding-plan/glm-5.2" --variant max'
+need "SKILL.md"                    '`~/.agents/AGENTS.md`'
+need "SKILL.md"                    'exec python3 "$HEADLESS_RELAY_ROOT/scripts/kimi_relay.py" "$@"'
+need "SKILL.md"                    'absolute HEADLESS_RELAY_ROOT required'
+need "SKILL.md"                    'obtain explicit consent'
+need "SKILL.md"                    'global MCP'
+need "SKILL.md"                    'session/log retention'
+need "scripts/kimi_relay.py"        'os.WNOWAIT'
+need "scripts/kimi_relay.py"        'start_new_session=True'
+need "scripts/kimi_relay.py"        'os.path.lexists(parent /'
+need "scripts/test-kimi-runtime.py" 'test_timeout_kills_term_ignoring_descendant'
 need "SKILL.md"                    'kimi login'
 need "references/cli-reference.md" "## Kimi K3 — kimi print mode"
 need "references/cli-reference.md" "Node.js 22.19.0 or later"
 need "references/cli-reference.md" 'kimi_relay "List changed files" "$KIMI_MODEL" stream-json'
-need "references/cli-reference.md" 'opencode run --attach http://localhost:4096 -m "zai-coding-plan/glm-5.2"'
+
 need "references/anthropic-terms.md" '| Moonshot AI (Kimi) |'
 need "references/custom-targets.md"  'built-in lanes (GPT, GLM, Kimi K3, Grok, Gemini, Claude)'
 
@@ -53,12 +61,12 @@ if grep -E 'opencode run .*(-m|--model)[[:space:]]+.*(HEADLESS_RELAY_KIMI_MODEL|
   fail=1
 fi
 
-# Every executable OpenCode GLM example must name the fixed Coding Plan model.
+# Every executable OpenCode GLM example must name the explicit Coding Plan model.
 if awk '
   /^[[:space:]]*```bash[[:space:]]*$/ { in_bash=1; next }
   /^[[:space:]]*```/ { in_bash=0; next }
   in_bash && /opencode run/ && $0 !~ /^[[:space:]]*#/ &&
-    $0 !~ /zai-coding-plan\/glm-5\.2/ { print NR ":" $0; bad=1 }
+    $0 !~ /zai-coding-plan\/glm-[0-9]/ { print NR ":" $0; bad=1 }
   END { exit bad }
 ' "$ROOT/SKILL.md" "$ROOT/references/cli-reference.md" >"$CHECK_TMP/glm"; then
   :
@@ -69,12 +77,11 @@ else
 fi
 
 # Text-only copy/paste examples must not execute native print mode in the caller's cwd. The one
-# raw `kimi ... -p` line allowed in a bash fence is the helper's guarded temp-CWD invocation.
+# invocation lives in the shipped Kimi-owned supervisor, not an inline shell fence.
 if awk '
   /^[[:space:]]*```bash[[:space:]]*$/ { in_bash=1; next }
   /^[[:space:]]*```/ { in_bash=0; next }
-  in_bash && /(^|[[:space:]&(])kimi[[:space:]].*-p([[:space:]]|$)/ &&
-    $0 !~ /perl .* kimi .* -p/ { print FILENAME ":" FNR ":" $0; bad=1 }
+  in_bash && /(^|[[:space:]&(])kimi[[:space:]].*-p([[:space:]]|$)/ { print FILENAME ":" FNR ":" $0; bad=1 }
   END { exit bad }
 ' "$ROOT/SKILL.md" "$ROOT/references/cli-reference.md" >"$CHECK_TMP/cwd"; then
   :
@@ -102,6 +109,6 @@ else
 fi
 
 if [ "$fail" -eq 0 ]; then
-  echo "OK: first-class Kimi K3 contract present; native OAuth/model override is isolated from fixed GLM 5.2 routing."
+  echo "OK: first-class Kimi K3 contract present; native OAuth/model override is isolated from independent GLM routing."
 fi
 exit "$fail"
