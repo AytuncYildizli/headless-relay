@@ -69,41 +69,49 @@ def main():
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)
     # Resolve BEFORE the child's cwd changes; honour relative TMPDIR explicitly.
     temp_root = Path(os.environ.get('TMPDIR') or tempfile.gettempdir()).resolve(strict=True)
+    result = None
+    status = None
     with tempfile.TemporaryDirectory(prefix='kimi-iso.', dir=str(temp_root)) as temp:
         cwd = Path(temp).resolve(strict=True)
         if not non_git(cwd):
             print('kimi-relay: temporary cwd is inside a git repository; refusing', file=sys.stderr)
-            return 1
-        skills = cwd / 'skills'
-        skills.mkdir(mode=0o700)
-        if stopped:
-            return 128 + stopped
-        proc = subprocess.Popen(['kimi', '--skills-dir', str(skills), '-m', model,
-                                 '-p', prompt, '--output-format', output], cwd=str(cwd),
-                                stdin=subprocess.DEVNULL, start_new_session=True)
-        deadline = time.monotonic() + int(limit)
-        result = None
-        try:
-            while True:
-                if stopped:
-                    result = 128 + stopped
-                    break
-                # Observe exit without reaping the leader (and freeing its PID).
-                exited = os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
-                if exited is not None:
-                    break
-                if time.monotonic() >= deadline:
-                    result = 124
-                    break
-                time.sleep(.02)
-        finally:
-            status = cancel_owned_group(proc)
-        if result is not None:
-            return result
-        # Cancellation can arrive after leader exit, during group cleanup.
-        if stopped:
-            return 128 + stopped
-        return status if status >= 0 else 128 - status
+            result = 1
+        elif stopped:
+            result = 128 + stopped
+        else:
+            skills = cwd / 'skills'
+            skills.mkdir(mode=0o700)
+            proc = subprocess.Popen(['kimi', '--skills-dir', str(skills), '-m', model,
+                                     '-p', prompt, '--output-format', output], cwd=str(cwd),
+                                    stdin=subprocess.DEVNULL, start_new_session=True)
+            deadline = time.monotonic() + int(limit)
+            try:
+                while True:
+                    if stopped:
+                        result = 128 + stopped
+                        break
+                    # Observe exit without reaping the leader (and freeing its PID).
+                    exited = os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                    if exited is not None:
+                        break
+                    if time.monotonic() >= deadline:
+                        result = 124
+                        break
+                    time.sleep(.02)
+            finally:
+                status = cancel_owned_group(proc)
+    # Select status only AFTER group cancellation AND temporary-directory cleanup.
+    # Preserve a timeout/cancellation established before cleanup; otherwise account
+    # for a newly received signal instead of returning an earlier success/error.
+    if result is not None and (result == 124 or result >= 128):
+        return result
+    if stopped:
+        return 128 + stopped
+    if result is not None:
+        return result
+    if status is None:
+        raise RuntimeError('Kimi exit status was not collected')
+    return status if status >= 0 else 128 - status
 
 
 if __name__ == '__main__':

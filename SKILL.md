@@ -50,7 +50,7 @@ bounds Kimi's background-task wait (default 600 seconds; override with a positiv
 `HEADLESS_RELAY_KIMI_TIMEOUT_SECONDS`). A separate watchdog cancels the owned process group on
 timeout, INT/TERM/HUP, and normal/nonzero CLI exit: TERM, 0.2-second grace, then KILL, all before
 reaping the leader so its PID/PGID cannot be reused. Timeout returns 124; signals return 128+signal;
-other CLI exits propagate. Cancellation adds up to the grace interval to the deadline. Processes
+other CLI exits propagate. Group grace and temporary-directory cleanup add overhead to the deadline. Processes
 that detach into another session/group escape this cancellation; SIGKILL of the supervisor also
 bypasses cleanup. This is not a security boundary. Physical ancestor checks reject `.git` markers
 and bare repositories independently of Git environment variables; paths are absolute before cd.

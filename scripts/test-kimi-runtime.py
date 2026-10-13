@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -38,7 +39,7 @@ class KimiRuntime(unittest.TestCase):
         self.bin = self.base / 'bin'
         self.bin.mkdir()
         fake = self.bin / 'kimi'
-        fake.write_text(FAKE)
+        fake.write_text(FAKE.replace('#!/usr/bin/env python3', '#!' + sys.executable, 1), encoding='utf-8')
         fake.chmod(0o700)
         self.home = self.base / 'home'
         self.home.mkdir()
@@ -53,7 +54,7 @@ class KimiRuntime(unittest.TestCase):
                     'KIMI_TEST_RECORD': str(self.record), 'KIMI_TEST_CANARY': str(self.canary)}
         for name in ('HEADLESS_RELAY_KIMI_MODEL', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_CEILING_DIRECTORIES'):
             self.env.pop(name, None)
-        text = (ROOT / 'SKILL.md').read_text()
+        text = (ROOT / 'SKILL.md').read_text(encoding='utf-8')
         match = re.search(r'^kimi_relay\(\) \(\n.*?^\)\n', text, re.M | re.S)
         self.assertIsNotNone(match, 'documented helper must exist')
         assert match is not None
@@ -126,7 +127,7 @@ class KimiRuntime(unittest.TestCase):
     def lifecycle_fixture(self):
         # Synchronize leader exit with a ready descendant and cleanup with its TERM.
         fake = self.bin / 'kimi'
-        fake.write_text('''#!/usr/bin/env python3
+        fake.write_text('#!' + sys.executable + '''
 import os, pathlib, subprocess, sys, time
 child = """import os,pathlib,signal,time
 ready=pathlib.Path(os.environ['KIMI_TEST_READY'])
@@ -146,7 +147,7 @@ while not pathlib.Path(os.environ['KIMI_TEST_READY']).exists(): time.sleep(.002)
 
     def test_inherited_ignored_sigchld_preserves_group_ownership(self):
         env = self.lifecycle_fixture()
-        result = subprocess.run(['/usr/bin/python3', str(ROOT / 'scripts/kimi_relay.py'), 'prompt'],
+        result = subprocess.run([sys.executable, str(ROOT / 'scripts/kimi_relay.py'), 'prompt'],
                                 env=env, cwd=self.work, capture_output=True, text=True,
                                 preexec_fn=lambda: signal.signal(signal.SIGCHLD, signal.SIG_IGN), timeout=6)
         time.sleep(2.7)
@@ -155,7 +156,7 @@ while not pathlib.Path(os.environ['KIMI_TEST_READY']).exists(): time.sleep(.002)
 
     def test_cleanup_phase_signal_is_not_success(self):
         env = self.lifecycle_fixture()
-        proc = subprocess.Popen(['/usr/bin/python3', str(ROOT / 'scripts/kimi_relay.py'), 'prompt'],
+        proc = subprocess.Popen([sys.executable, str(ROOT / 'scripts/kimi_relay.py'), 'prompt'],
                                 env=env, cwd=self.work, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         deadline = time.monotonic() + 3
         marker = Path(env['KIMI_TEST_TERM'])
@@ -169,6 +170,31 @@ while not pathlib.Path(os.environ['KIMI_TEST_READY']).exists(): time.sleep(.002)
         self.assertEqual(proc.returncode, 143, stderr.decode())
         time.sleep(2.7)
         self.assertFalse(self.canary.exists())
+
+    def test_signals_during_temporary_directory_exit(self):
+        # Inject the cancellation into the context manager's exit, after leader cleanup.
+        script = ROOT / 'scripts/kimi_relay.py'
+        wrapper = '''import importlib.util, os, signal, sys
+spec=importlib.util.spec_from_file_location('relay',sys.argv[1])
+module=importlib.util.module_from_spec(spec)
+sys.dont_write_bytecode=True
+spec.loader.exec_module(module)
+original=module.tempfile.TemporaryDirectory
+class InterruptedExit(original):
+    def __exit__(self,*args):
+        result=super().__exit__(*args)
+        os.kill(os.getpid(),int(os.environ['KIMI_TEST_SIGNAL']))
+        return result
+module.tempfile.TemporaryDirectory=InterruptedExit
+sys.argv=['kimi_relay.py','prompt']
+sys.exit(module.main())
+'''
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(signal=sig):
+                result = subprocess.run([sys.executable, '-c', wrapper, str(script)],
+                                        env={**self.env, 'KIMI_TEST_SIGNAL': str(int(sig))},
+                                        cwd=self.work, capture_output=True, timeout=6)
+                self.assertEqual(result.returncode, 128 + sig, result.stderr)
 
     def test_model_precedence_format_and_nonzero(self):
         result = self.run_helper(args=['prompt', 'opaque/model', 'stream-json'],
@@ -210,7 +236,7 @@ while not pathlib.Path(os.environ['KIMI_TEST_READY']).exists(): time.sleep(.002)
             with self.subTest(signal=sig):
                 self.record.unlink(missing_ok=True)
                 self.canary.unlink(missing_ok=True)
-                proc = subprocess.Popen(['/usr/bin/python3', str(script), 'prompt'],
+                proc = subprocess.Popen([sys.executable, str(script), 'prompt'],
                                         env={**self.env, 'KIMI_TEST_MODE': 'descendant'}, cwd=self.work,
                                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
                 deadline = time.monotonic() + 3
