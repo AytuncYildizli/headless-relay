@@ -54,6 +54,8 @@ other CLI exits propagate. Group grace and temporary-directory cleanup add overh
 that detach into another session/group escape this cancellation; SIGKILL of the supervisor also
 bypasses cleanup. This is not a security boundary. Physical ancestor checks reject `.git` markers
 and bare repositories independently of Git environment variables; paths are absolute before cd.
+The CLI binary and relative/empty PATH entries are resolved against the caller cwd before launch,
+including PATH-based interpreter lookup; this normalized PATH is passed only to the child.
 
 ```bash
 # Usage: kimi_relay PROMPT [NATIVE-MODEL-ALIAS] [text|stream-json]

@@ -285,6 +285,19 @@ kimi_relay_file() { printf 'partial answer'; return "$KIMI_TEST_RC"; }
                                 env=self.env, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_relative_and_empty_path_entries(self):
+        (self.work / 'bin').symlink_to(self.bin, target_is_directory=True)
+        (self.work / 'kimi').symlink_to(self.bin / 'kimi')
+        (self.work / 'python3').symlink_to(sys.executable)
+        for path in ('bin', ''):
+            with self.subTest(path=path):
+                result = self.run_helper('/bin/sh', env={'PATH': path})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                row = json.loads(self.record.read_text())
+                self.assertTrue(row['skills_absolute'])
+                self.assertTrue(row['skills_empty'])
+                self.assertNotEqual(row['cwd'], str(self.work))
+
     def test_bad_input_never_runs_cli(self):
         for args, extra in (([], {}), (['p', 'm', 'bad'], {}), (['p'], {'HEADLESS_RELAY_KIMI_TIMEOUT_SECONDS': '0'}),
                             (['p'], {'HEADLESS_RELAY_KIMI_TIMEOUT_SECONDS': '1.5'}),

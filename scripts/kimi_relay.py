@@ -9,6 +9,7 @@ Inherited HOME/config/env remain intentional; only the CLI owns native auth.
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import stat
 import subprocess
@@ -72,10 +73,19 @@ def main():
         print('kimi-relay: prompt must be UTF-8 without NUL and at most 32 KiB; no truncation', file=sys.stderr)
         return 2
     prompt = payload.decode('utf-8')
+    # Preserve caller-side lookup semantics for both Kimi and env-shebang tools.
+    # Empty PATH entries mean the caller cwd, not the later isolated cwd.
+    search_path = os.pathsep.join(os.path.abspath(entry or os.curdir)
+                                  for entry in os.environ.get('PATH', os.defpath).split(os.pathsep))
+    kimi_binary = shutil.which('kimi', path=search_path)
+    if kimi_binary is None:
+        print('kimi-relay: Kimi executable unavailable; refusing', file=sys.stderr)
+        return 1
+    child_env = {**os.environ, 'PATH': search_path}
     # Kimi has no stdin prompt route: refuse before launch if inherited env/argv
     # leave insufficient OS exec budget, even for an otherwise bounded prompt.
     argv_bytes = sum(len(os.fsencode(v)) + 1 for v in (prompt, model, output))
-    env_bytes = sum(len(os.fsencode(k)) + len(os.fsencode(v)) + 2 for k, v in os.environ.items())
+    env_bytes = sum(len(os.fsencode(k)) + len(os.fsencode(v)) + 2 for k, v in child_env.items())
     if argv_bytes + env_bytes + 8192 > os.sysconf('SC_ARG_MAX'):
         print('kimi-relay: insufficient OS argument budget; refusing', file=sys.stderr)
         return 2
@@ -104,9 +114,9 @@ def main():
         else:
             skills = cwd / 'skills'
             skills.mkdir(mode=0o700)
-            proc = subprocess.Popen(['kimi', '--skills-dir', str(skills), '-m', model,
+            proc = subprocess.Popen([kimi_binary, '--skills-dir', str(skills), '-m', model,
                                      '-p', prompt, '--output-format', output], cwd=str(cwd),
-                                    stdin=subprocess.DEVNULL, start_new_session=True)
+                                    env=child_env, stdin=subprocess.DEVNULL, start_new_session=True)
             deadline = time.monotonic() + int(limit)
             try:
                 while True:
