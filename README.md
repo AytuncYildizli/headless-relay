@@ -91,6 +91,7 @@ lives in `references/reprompter-relay.md`.
 | `scripts/print-model-catalog.sh` | Machine-local catalog: asks installed CLIs which model ids they serve *today*. Not a published menu. |
 | `scripts/catalog_watchdog.py` | Process-group watchdog used by the catalog (timeout / INT / TERM / HUP). After a normal CLI exit it does not `killpg` — that pgid could already be reused. Secrets stay out of argv. |
 | `scripts/regression-model-pins.sh` | Static tripwire: fails if docs teach `codex models` as a catalog (that starts a session on 0.144) |
+| `scripts/regression-claude-target.sh` / `scripts/test-claude-target.py` | Offline stdlib Python regression: executes the shipped Claude helper with an argv stub under sh/bash, synthetic settings/profiles, and missing/poisoned jq. Tests native delegation, opaque overrides (including printable `[1m]`), resume/error propagation, and negative mutations; no real Claude or network. |
 | `LICENSE.txt` | MIT license |
 
 ## Install
