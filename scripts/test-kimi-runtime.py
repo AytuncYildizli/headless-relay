@@ -38,6 +38,9 @@ class KimiRuntime(unittest.TestCase):
         self.base = Path(self.tmp.name).resolve()
         self.bin = self.base / 'bin'
         self.bin.mkdir()
+        # The documented shell adapter must also find the active interpreter,
+        # even when the host has no /usr/bin/python3.
+        (self.bin / 'python3').symlink_to(sys.executable)
         fake = self.bin / 'kimi'
         fake.write_text(FAKE.replace('#!/usr/bin/env python3', '#!' + sys.executable, 1), encoding='utf-8')
         fake.chmod(0o700)
