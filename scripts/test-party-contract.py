@@ -18,6 +18,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # Exact normative clauses: intentionally small reviewable documentation tripwires.
 CLAUSES = {
+    "payload_isolation": ("Scheduling rules", "- For payload-only tasks, revoke inherited repository/tool access before dispatch: use a fresh per-lane non-repository cwd and a transport that disables file-reading, command execution, MCP/hooks, and equivalent native-subagent tools; an empty cwd alone is not isolation."),
+    "payload_block": ("Scheduling rules", "- If that isolation cannot be established for a payload-only lane, mark it `blocked_egress` and do not invoke it; ask for explicitly expanded access only if needed, never infer it from Party Mode or a frozen brief."),
     "native": ("Roster receipt", "- Same-provider lanes MUST be admitted with `transport=native_subagent` when the harness supplies that transport and all gates pass; invoke them with the canonical user brief and require an independent output/error receipt."),
     "native_unavailable": ("Roster receipt", "- If the harness lacks native subagent transport, mark that lane `unavailable` with a reason; do not call its same-provider headless CLI as a fallback."),
     "receipt": ("Completion and useful outcome", "- Bookkeeping is `complete` only if the canonical brief exists, the full roster was evaluated, every skipped lane has a reason, and every admitted lane (including native subagents) has a terminal output/error receipt."),
@@ -73,12 +75,18 @@ def violations(ref, skill, readme):
     match = re.search(r"^```json\n(.*?)\n```$", "\n".join(parts.get("Roster receipt", [])), re.M | re.S)
     try:
         manifest = json.loads(match.group(1)) if match else {}
+        if not isinstance(manifest, dict) or not isinstance(manifest.get("lanes"), list):
+            raise ValueError("manifest must contain a lane list")
         lanes = manifest["lanes"]
         for lane in lanes:
-            assert set(("lane", "provider", "model", "transport", "state", "terminal", "artifact", "reason")) <= lane.keys()
-            assert lane["state"] in {"admitted", "unavailable", "blocked_policy", "blocked_egress"}
-            assert lane["terminal"] in {"output", "error", "timeout", "not_invoked"}
-        assert any(l["state"] == "admitted" and l["transport"] == "native_subagent" for l in lanes)
+            if not isinstance(lane, dict) or not set(("lane", "provider", "model", "transport", "state", "terminal", "artifact", "reason")) <= lane.keys():
+                raise ValueError("missing lane fields")
+            if lane["state"] not in {"admitted", "unavailable", "blocked_policy", "blocked_egress"}:
+                raise ValueError("invalid admission state")
+            if lane["terminal"] not in {"output", "error", "timeout", "not_invoked"}:
+                raise ValueError("invalid terminal state")
+        if not any(l["state"] == "admitted" and l["transport"] == "native_subagent" for l in lanes):
+            raise ValueError("missing native example")
     except (KeyError, AssertionError, ValueError, TypeError):
         errors.append("manifest")
     return errors
@@ -110,9 +118,9 @@ def fixture_outcome(lanes, brief=True):
 class DocumentationContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ref = (ROOT / "references/party-mode.md").read_text()
-        cls.skill = (ROOT / "SKILL.md").read_text()
-        cls.readme = (ROOT / "README.md").read_text()
+        cls.ref = (ROOT / "references/party-mode.md").read_text(encoding="utf-8")
+        cls.skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        cls.readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     def test_current_documentation(self):
         self.assertEqual(violations(self.ref, self.skill, self.readme), [])

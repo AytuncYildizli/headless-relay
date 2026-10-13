@@ -81,7 +81,7 @@ def contract(text):
                             receipt.unlink(missing_ok=True)
                             run = subprocess.run([shell, "-c", ("set -eu\n" if strict else "") + helper + "\n" + call], env=env, cwd=project, capture_output=True, text=True, timeout=5)
                             expected = ["-p", "your question here"] + (["--model", override] if override else [])
-                            actual = json.loads(receipt.read_text()) if receipt.exists() else {}
+                            actual = json.loads(receipt.read_text(encoding="utf-8")) if receipt.exists() else {}
                             count += 1
                             if run.returncode or run.stderr or actual.get("argv") != expected or actual.get("native_model") != env.get("ANTHROPIC_MODEL") or actual.get("config_dir") != env.get("CLAUDE_CONFIG_DIR"):
                                 failures.append(f"{name}/{Path(shell).name}/strict={strict}/parser={parser}/override={override!r}: rc={run.returncode}, expected={expected!r}, actual={actual!r}, stderr={run.stderr!r}")
@@ -96,7 +96,7 @@ def contract(text):
                         env["HEADLESS_RELAY_CLAUDE_MODEL"] = override
                     command = 'claude_relay -p "follow up" --resume "session-id" --output-format json'
                     run = subprocess.run([shell, "-c", "set -eu\n" + helper + "\n" + command], env=env, cwd=project, capture_output=True, text=True, timeout=5)
-                    actual = json.loads(Path(env["ARGV_RECEIPT"]).read_text())["argv"]
+                    actual = json.loads(Path(env["ARGV_RECEIPT"]).read_text(encoding="utf-8"))["argv"]
                     expected = ["-p", "follow up", "--resume", "session-id", "--output-format", "json"] + (["--model", override] if override else [])
                     count += 1
                     if actual != expected or run.returncode != 23:
@@ -105,7 +105,7 @@ def contract(text):
 
 
 def main():
-    text = (ROOT / "SKILL.md").read_text()
+    text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
     count, failures = contract(text)
     if failures:
         print(f"FAIL: {len(failures)}/{count} Claude argv cases")
@@ -127,7 +127,7 @@ def main():
             raise AssertionError(f"mutation survived: {name}")
         print(f"OK: mutation rejected: {name}")
     # Generic examples use the tested helper; the deliberate capability probe stays explicit.
-    ref = (ROOT / "references/cli-reference.md").read_text()
+    ref = (ROOT / "references/cli-reference.md").read_text(encoding="utf-8")
     for name, doc in (("SKILL.md", text), ("references/cli-reference.md", ref)):
         if re.search(r'^\s*(?:result=\$\(|sid=\$\()?claude -p ', doc, re.M):
             raise AssertionError(f"untested generic raw Claude call in {name}")

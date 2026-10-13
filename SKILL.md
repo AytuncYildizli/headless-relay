@@ -703,7 +703,12 @@ When the user says `party mode`, `council mode`, `ask everyone`, `run all availa
 then invoke every lane that passes the existing availability, same-provider, provider-terms, and
 data-egress gates. Same-provider lanes are admitted via native subagent transport, with their own
 independent output/error receipt; if the harness lacks that transport, record unavailable with a
-reason, never fall back to the same-provider CLI. Normalize and freeze one canonical user brief
+reason, never fall back to the same-provider CLI. For payload-only tasks, use a fresh per-lane
+non-repository cwd AND disable inherited file/tool/command/MCP/hooks access through the transport,
+including native-subagent permissions. If this cannot be established, record `blocked_egress`
+and skip the lane; a frozen brief or empty cwd does not revoke inherited access. Explicitly
+authorized repo tasks must stay within the approved access scope, not inherit broader permissions.
+Normalize and freeze one canonical user brief
 as documented in the reference; this does not promise identical total model context. Do not
 install tools, log in, rotate auth, or silently substitute models to make the roster look complete.
 

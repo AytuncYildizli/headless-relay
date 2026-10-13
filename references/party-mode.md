@@ -98,6 +98,8 @@ Keep `brief.md`, `manifest.json`, `answers/<safe-lane-id>.md`, `status/<safe-lan
 
 ## Scheduling rules
 
+- For payload-only tasks, revoke inherited repository/tool access before dispatch: use a fresh per-lane non-repository cwd and a transport that disables file-reading, command execution, MCP/hooks, and equivalent native-subagent tools; an empty cwd alone is not isolation.
+- If that isolation cannot be established for a payload-only lane, mark it `blocked_egress` and do not invoke it; ask for explicitly expanded access only if needed, never infer it from Party Mode or a frozen brief.
 - Start compatible parallel lanes using the exact safe adapters from `SKILL.md`; collect per-lane status, not the exit status of a bare `wait`.
 - Wait for that burst to finish before running Antigravity.
 - Run heavyweight local custom targets one at a time unless target notes explicitly permit concurrency.
